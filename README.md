@@ -66,6 +66,30 @@ New visitors start with sample events, tasks, calendars, and an example Whentome
   and isn't available. Click a person to see just their availability.
 - Close with the ✕ or by clicking the top line again. Everything is stored in the browser.
 
+## Booking pages (book time with me)
+
+Like Calendly or Google's appointment schedules: a page where other people pick a free time with you.
+
+- The **Booking pages** section (sidebar, under Whentomeet) lists your pages, e.g. "Coffee chat · 30 min" with
+  "Mon–Fri · 9 AM – 5 PM" under it. `+` creates one, the pencil on hover edits or deletes it. A page has a
+  name, a length (15 / 30 / 45 / 60 min), the weekdays and hours you're available, how far ahead people can
+  book (1, 2 or 4 weeks), the minimum notice (none, 1 hour, 4 hours, 1 day), the calendar bookings go into
+  and an optional location. New visitors start with an example "Coffee chat" page (30 min, Mon–Fri, 9–5, Zoom).
+- **Copy link** copies this app's own address with `#book/<id>` on the end; **Preview** opens the same view.
+  Opening the app with that link shows the booking page instead of the calendar: the page name, length and
+  location; a month where days with open times are in bold (‹ › move between months inside the booking
+  window); and the open start times for the chosen day. "Back to calendar" (or Esc) closes it.
+- Start times run every <length> minutes from the start of the day's hours (9:00, 9:30, … 4:30 for a
+  30-minute page from 9 to 5) and must end by the end of the hours. A time is left out if it's sooner than the
+  minimum notice, beyond the booking window, or overlaps any timed event on any of your calendars (hidden
+  ones too — you're busy either way). All-day events don't block anything.
+- Picking a time asks for a name, an email and an optional note. Confirming adds "<page name> with <name>"
+  to the page's calendar, with the page's location, plus a "Booking details.txt" attachment holding the
+  email and note (events have no description field; the file shows in the event's popup). It can be undone
+  like any other change. Then "You're booked" shows the time, and that time is gone from the list.
+- Pages are stored in the browser like everything else, so a link only works in the browser it was made in
+  (anywhere else it says the page doesn't exist).
+
 ## Connection Hub (messages → events and tasks)
 
 Click the **Connection Hub** tab (top left). It uses made-up demo messages — nothing is really connected.

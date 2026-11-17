@@ -118,6 +118,18 @@
         <ul class="wtm-items" id="wtmItems"></ul>
       </section>
 
+      <!-- Booking pages: "book time with me" links (opening one shows the page people book from) -->
+      <section class="bk-list" id="bkList" aria-label="Booking pages">
+        <div class="tasks-head">
+          <span>Booking pages</span>
+          <button class="icon-btn small" id="bkAdd" aria-label="Create a booking page" title="Create a booking page">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+        </div>
+        <ul class="bk-items" id="bkItems"></ul>
+        <div class="task-empty" id="bkEmpty" hidden>No booking pages. Add one with +.</div>
+      </section>
+
       <section class="tasks" aria-label="Tasks" title="Drag a task onto the calendar to schedule it">
         <div class="tasks-head">
           <span>Tasks</span>
@@ -380,6 +392,18 @@
 
   <div class="popover" id="popover" hidden></div>
   <div class="toast" id="toast" hidden></div>
+
+  <!-- Booking page as people see it (#book/<id>): replaces the whole app while open -->
+  <div class="bk-guest" id="bkGuest" role="dialog" aria-modal="true" tabindex="-1" hidden>
+    <div class="bk-topbar">
+      <button type="button" class="bk-close" id="bkClose">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        <span>Back to calendar</span>
+      </button>
+      <button type="button" class="bk-copy" id="bkCopy">Copy link</button>
+    </div>
+    <div class="bk-wrap" id="bkWrap"></div>
+  </div>
 
   <script src="app.js"></script>
 </body>

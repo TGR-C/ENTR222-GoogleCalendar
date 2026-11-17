@@ -4422,6 +4422,674 @@
     if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
   });
 
+  // ---------- Booking pages ----------
+  // "Book time with me" pages, like Calendly or Google's appointment schedules: a length, weekdays and
+  // hours. The link is this app's own address + #book/<id>; opening it shows the page people book from,
+  // and a booking goes straight into your calendar. Open times skip anything on any of your calendars.
+  const BOOK_KEY = "nl-calendar-booking-v1";
+  const BOOK_DURATIONS = [15, 30, 45, 60];
+  const BOOK_AHEAD = [[7, "1 week"], [14, "2 weeks"], [28, "4 weeks"]];
+  const BOOK_NOTICE = [[0, "None"], [60, "1 hour"], [240, "4 hours"], [1440, "1 day"]];
+  const BOOK_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M16.53 11.06 15.47 10l-4.88 4.88-2.12-2.12-1.06 1.06L10.59 17l5.94-5.94zM19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>`;
+  const BOOK_CLOCK = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>`;
+  const BOOK_BACK = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
+  const BOOK_DONE = `<svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`;
+  const BOOK_PREV = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>`;
+  const BOOK_NEXT = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>`;
+  const BOOK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Fill in anything missing or out of range (older or hand-edited saves).
+  function normBookingPage(p) {
+    const pick = (v, list, def) => (list.includes(v) ? v : def);
+    const days = Array.isArray(p.days) ? [...new Set(p.days.map(Number).filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b) : [];
+    let start = Math.max(0, Math.min(23, Math.floor(Number(p.start)) || 0));
+    let end = Math.max(1, Math.min(24, Math.floor(Number(p.end)) || 0));
+    if (end <= start) { start = 9; end = 17; }
+    return {
+      id: String(p.id || "b" + uid()), name: String(p.name || "Booking page"),
+      duration: pick(Number(p.duration), BOOK_DURATIONS, 30),
+      days: days.length ? days : [1, 2, 3, 4, 5], start, end,
+      ahead: pick(Number(p.ahead), BOOK_AHEAD.map(([v]) => v), 14),
+      notice: pick(Number(p.notice), BOOK_NOTICE.map(([v]) => v), 240),
+      cal: String(p.cal || defaultCalId()), location: String(p.location || ""), createdAt: p.createdAt || Date.now(),
+    };
+  }
+  function loadBookingPages() {
+    let raw = null;
+    try { raw = localStorage.getItem(BOOK_KEY); } catch { /* storage blocked: use the example */ }
+    if (raw !== null) {
+      try { const list = JSON.parse(raw); if (Array.isArray(list)) return list.filter((p) => p && typeof p === "object").map(normBookingPage); } catch { /* ignore */ }
+      return [];
+    }
+    // First visit: one example page.
+    const seeded = [normBookingPage({
+      id: "b" + uid(), name: "Coffee chat", duration: 30, days: [1, 2, 3, 4, 5], start: 9, end: 17,
+      ahead: 14, notice: 240, cal: defaultCalId(), location: "Zoom",
+    })];
+    try { localStorage.setItem(BOOK_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
+    return seeded;
+  }
+  let bookingPages = loadBookingPages();
+  const saveBookingPages = () => { try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookingPages)); } catch { /* storage full */ } };
+  const bookingById = (id) => bookingPages.find((p) => p.id === id);
+
+  // "Mon–Fri", "Mon, Wed, Fri", "Sun, Sat", "Every day". Runs of 3+ days read as a range.
+  function bookingDaysText(days) {
+    const list = [...new Set(days)].sort((a, b) => a - b);
+    if (list.length === 7) return "Every day";
+    const runs = [];
+    for (const d of list) {
+      const r = runs[runs.length - 1];
+      if (r && d === r[1] + 1) r[1] = d; else runs.push([d, d]);
+    }
+    return runs.map(([a, b]) => (b - a >= 2 ? `${DAY_NAMES[a]}–${DAY_NAMES[b]}` : b > a ? `${DAY_NAMES[a]}, ${DAY_NAMES[b]}` : DAY_NAMES[a])).join(", ");
+  }
+  const bookingSummary = (p) => `${bookingDaysText(p.days)} · ${hourLabel(p.start)} – ${hourLabel(p.end)}`;
+  const bookingLink = (p) => {
+    const base = location.origin && location.origin !== "null" ? location.origin + location.pathname : location.href.split("#")[0];
+    return `${base}#book/${encodeURIComponent(p.id)}`;
+  };
+
+  // Every timed event blocks its time, hidden calendars included (you're busy either way). All-day ones don't.
+  const bookingBusy = () => events.filter((ev) => notDemo(ev) && !ev.allDay && ev.start && ev.end)
+    .map((ev) => [parseISO(ev.start), parseISO(ev.end)]);
+  // Open start times on one day: every <duration> minutes from the window start, ending by the window end,
+  // at least <notice> minutes from now, no later than <ahead> days from today, on the chosen weekdays, and
+  // not overlapping anything in busy ([[start, end], …]). Times are built on the wall clock (midnight, then
+  // setHours) so a daylight-saving day still runs 9:00, 9:30, …
+  function bookingSlotsOn(page, day, now, busy) {
+    const d0 = startOfDay(day), today = startOfDay(now);
+    if (!page.days.includes(d0.getDay()) || d0 < today || d0 > addDays(today, page.ahead)) return [];
+    const earliest = now.getTime() + page.notice * 60000;
+    const out = [];
+    for (let t = page.start * 60; t + page.duration <= page.end * 60; t += page.duration) {
+      const s = startOfDay(d0);
+      s.setHours(Math.floor(t / 60), t % 60, 0, 0);
+      if (s.getHours() !== Math.floor(t / 60) || s.getMinutes() !== t % 60) continue; // skipped by a DST jump
+      const e = startOfDay(d0);
+      e.setHours(Math.floor((t + page.duration) / 60), (t + page.duration) % 60, 0, 0);
+      if (s.getTime() < earliest) continue;
+      if (busy.some(([bs, be]) => bs < e && be > s)) continue;
+      out.push({ start: s, end: e });
+    }
+    return out;
+  }
+  // The first day (from today) with an open time, or null.
+  function firstBookingDay(page, now, busy) {
+    const today = startOfDay(now);
+    for (let i = 0; i <= page.ahead; i++) {
+      const d = addDays(today, i);
+      if (bookingSlotsOn(page, d, now, busy).length) return d;
+    }
+    return null;
+  }
+
+  const bkEl = {
+    list: $("bkList"), items: $("bkItems"), empty: $("bkEmpty"), add: $("bkAdd"),
+    guest: $("bkGuest"), wrap: $("bkWrap"), close: $("bkClose"), copy: $("bkCopy"),
+  };
+  // The guest view (what people see when they open the link). step: "pick" → "form" → "done".
+  const bkView = { open: false, pageId: null, month: null, day: null, slot: null, step: "pick", booked: null,
+    form: null, notice: "", pushed: false, inerted: [], returnTo: null };
+
+  // ----- sidebar list -----
+  async function copyBookingLink(p, btn) {
+    try { await navigator.clipboard.writeText(bookingLink(p)); } catch { /* no clipboard access: nothing else to do */ }
+    clearTimeout(btn._bkTimer);
+    btn.textContent = "Link copied";
+    btn.classList.add("done");
+    btn._bkTimer = setTimeout(() => { btn.textContent = "Copy link"; btn.classList.remove("done"); }, 1800);
+  }
+  function renderBookingList() {
+    bkEl.items.innerHTML = "";
+    bkEl.empty.hidden = bookingPages.length > 0;
+    for (const p of bookingPages) {
+      const li = document.createElement("li");
+      li.className = "bk-li";
+      li.dataset.id = p.id;
+      li.innerHTML = `<div class="bk-item">${BOOK_ICON}<span class="wtm-pt"><b></b><small></small></span>
+          <button type="button" class="icon-btn small bk-edit">${PENCIL}</button></div>
+        <div class="bk-acts"><button type="button" class="bk-act" data-act="copy">Copy link</button>
+          <button type="button" class="bk-act" data-act="preview">Preview</button></div>`;
+      li.querySelector("b").textContent = `${p.name} · ${p.duration} min`;
+      li.querySelector("small").textContent = bookingSummary(p);
+      const edit = li.querySelector(".bk-edit");
+      edit.setAttribute("aria-label", `Edit ${p.name}`);
+      edit.title = "Edit booking page";
+      li.querySelector('[data-act="copy"]').title = "Copy the link people book from";
+      li.querySelector('[data-act="preview"]').title = "See the page people book from";
+      bkEl.items.appendChild(li);
+    }
+  }
+  bkEl.add.addEventListener("click", (e) => { e.stopPropagation(); showBookingEditor(null, bkEl.add); });
+  bkEl.items.addEventListener("click", (e) => {
+    const li = e.target.closest(".bk-li");
+    const b = e.target.closest("button");
+    if (!li || !b) return;
+    e.stopPropagation();
+    const p = bookingById(li.dataset.id);
+    if (!p) return;
+    if (b.classList.contains("bk-edit")) showBookingEditor(p, li);
+    else if (b.dataset.act === "copy") copyBookingLink(p, b);
+    else if (b.dataset.act === "preview") previewBookingPage(p, b);
+  });
+
+  // ----- create / edit (popover, like the calendar editor) -----
+  function showBookingEditor(page, anchor) {
+    clearDraft();
+    const p = el.popover;
+    const isNew = !page;
+    const f = page ? { ...page, days: [...page.days] }
+      : { name: "", duration: 30, days: [1, 2, 3, 4, 5], start: 9, end: 17, ahead: 14, notice: 240, cal: defaultCalId(), location: "" };
+    if (!calById(f.cal)) f.cal = defaultCalId();
+    p.innerHTML = `${CLOSE_BTN}
+      <div class="cal-editor bk-editor">
+        <div class="ce-title">${isNew ? "New booking page" : "Edit booking page"}</div>
+        <input class="ce-name" type="text" maxlength="80" placeholder="Name, e.g. Coffee chat" aria-label="Booking page name">
+        <div class="bk-field"><span class="bk-label" id="bkeDurL">Duration</span>
+          <div class="bk-seg" role="radiogroup" aria-labelledby="bkeDurL"></div></div>
+        <div class="bk-field"><span class="bk-label" id="bkeDaysL">Days</span>
+          <div class="bk-days" role="group" aria-labelledby="bkeDaysL"></div></div>
+        <div class="bk-two">
+          <label class="bk-field"><span class="bk-label">Available from</span><select class="bk-sel bk-from"></select></label>
+          <label class="bk-field"><span class="bk-label">Until</span><select class="bk-sel bk-until"></select></label>
+        </div>
+        <div class="bk-two">
+          <label class="bk-field"><span class="bk-label">Book up to</span><select class="bk-sel bk-ahead"></select></label>
+          <label class="bk-field"><span class="bk-label">Minimum notice</span><select class="bk-sel bk-min-notice"></select></label>
+        </div>
+        <div class="bk-field"><span class="bk-label" id="bkeCalL">Add bookings to</span>
+          <button type="button" class="bk-calbtn" aria-haspopup="menu" aria-describedby="bkeCalL"><span class="bk-dot"></span><span class="bk-calname"></span>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg></button></div>
+        <label class="bk-field"><span class="bk-label">Location (optional)</span>
+          <input class="bk-input bk-loc" type="text" maxlength="200" placeholder="e.g. Zoom, Campus café"></label>
+        <div class="ce-error" aria-live="polite"></div>
+        <div class="ce-actions">
+          ${isNew ? "" : `<button type="button" class="ce-delete">Delete</button>`}
+          <span class="ce-spacer"></span>
+          <button type="button" class="ce-cancel">Cancel</button>
+          <button type="button" class="ce-save">${isNew ? "Create" : "Save"}</button>
+        </div>
+      </div>`;
+    delete p.dataset.eventId;
+    const q = (s) => p.querySelector(s);
+    const name = q(".ce-name"), loc = q(".bk-loc"), err = q(".ce-error");
+    name.value = f.name;
+    loc.value = f.location;
+
+    const seg = q(".bk-seg");
+    for (const m of BOOK_DURATIONS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.textContent = `${m} min`;
+      b.addEventListener("click", (e) => { e.stopPropagation(); f.duration = m; paintSeg(); });
+      seg.appendChild(b);
+    }
+    const paintSeg = () => [...seg.children].forEach((b, i) => b.setAttribute("aria-checked", String(BOOK_DURATIONS[i] === f.duration)));
+    paintSeg();
+
+    const days = q(".bk-days");
+    DAY_NAMES.forEach((n, d) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = n;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        f.days = f.days.includes(d) ? f.days.filter((x) => x !== d) : [...f.days, d].sort((a, c) => a - c);
+        paintDays();
+        err.textContent = "";
+      });
+      days.appendChild(b);
+    });
+    const paintDays = () => [...days.children].forEach((b, d) => b.setAttribute("aria-pressed", String(f.days.includes(d))));
+    paintDays();
+
+    const from = q(".bk-from"), until = q(".bk-until");
+    for (let h = 0; h <= 23; h++) from.add(new Option(hourLabel(h), h));
+    for (let h = 1; h <= 24; h++) until.add(new Option(h === 24 ? "12 AM (midnight)" : hourLabel(h), h));
+    const paintHours = () => { from.value = f.start; until.value = f.end; };
+    paintHours();
+    from.addEventListener("change", () => { f.start = Number(from.value); if (f.end <= f.start) f.end = Math.min(24, f.start + 1); paintHours(); });
+    until.addEventListener("change", () => { f.end = Number(until.value); if (f.end <= f.start) f.start = Math.max(0, f.end - 1); paintHours(); });
+    const ahead = q(".bk-ahead"), notice = q(".bk-min-notice");
+    for (const [v, label] of BOOK_AHEAD) ahead.add(new Option(label, v));
+    for (const [v, label] of BOOK_NOTICE) notice.add(new Option(label, v));
+    ahead.value = f.ahead;
+    notice.value = f.notice;
+    ahead.addEventListener("change", () => { f.ahead = Number(ahead.value); });
+    notice.addEventListener("change", () => { f.notice = Number(notice.value); });
+
+    const calBtn = q(".bk-calbtn");
+    const paintCal = () => {
+      const c = calById(f.cal) || calById(defaultCalId());
+      q(".bk-dot").style.background = COLORS[c.color] || COLORS.peacock;
+      q(".bk-calname").textContent = c.name + (c.visible === false ? " (hidden)" : "");
+    };
+    paintCal();
+    calBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCalMenu(f.cal, calBtn, (id) => { f.cal = id; p.querySelector(".cal-menu")?.remove(); paintCal(); calBtn.focus(); }, { allowNew: false });
+    });
+
+    const save = () => {
+      const val = name.value.trim();
+      if (!val) { err.textContent = "Give the booking page a name."; name.focus(); return; }
+      if (!f.days.length) { err.textContent = "Pick at least one day."; return; }
+      if ((f.end - f.start) * 60 < f.duration) { err.textContent = "The hours are shorter than one meeting."; return; }
+      const fields = { name: val, duration: f.duration, days: [...f.days], start: f.start, end: f.end,
+        ahead: f.ahead, notice: f.notice, cal: f.cal, location: loc.value.trim() };
+      if (isNew) bookingPages.push(normBookingPage({ ...fields, id: "b" + uid(), createdAt: Date.now() }));
+      else Object.assign(page, fields);
+      saveBookingPages();
+      hidePopover();
+      renderBookingList();
+      setStatus(`${isNew ? "Created" : "Updated"} booking page “${escapeHTML(val)}”. Use Copy link to share it.`);
+    };
+    q(".ce-save").onclick = (e) => { e.stopPropagation(); save(); };
+    q(".ce-cancel").onclick = hidePopover;
+    q("[data-close]").onclick = hidePopover;
+    for (const input of [name, loc]) {
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); save(); } });
+      input.addEventListener("input", () => { err.textContent = ""; });
+    }
+    const del = q(".ce-delete");
+    if (del) {
+      let armed = false;
+      del.onclick = (e) => {
+        e.stopPropagation();
+        // Two-step delete: the first click asks for confirmation (booked events stay on the calendar).
+        if (!armed) { armed = true; del.textContent = "Delete this page?"; del.classList.add("armed"); return; }
+        bookingPages = bookingPages.filter((x) => x !== page);
+        saveBookingPages();
+        hidePopover();
+        renderBookingList();
+        setStatus(`Deleted booking page “${escapeHTML(page.name)}”. Times already booked stay on your calendar.`);
+      };
+    }
+    p.hidden = false;
+    placePopover(anchor);
+    if (FINE_POINTER) { name.focus(); name.select(); } // don't pop the keyboard up on phones
+  }
+
+  // ----- guest view (#book/<id>) -----
+  function bookingHashId() {
+    const m = /^#book\/(.+)$/.exec(location.hash);
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+  function syncBookingHash() {
+    const id = bookingHashId();
+    if (id !== null) {
+      if (bkView.open && bkView.pageId !== id) bkView.pushed = false; // address edited by hand: don't step back to the old page
+      if (!bkView.open || bkView.pageId !== id) openBookingGuest(id);
+    }
+    else if (bkView.open) hideBookingGuest();
+  }
+  function previewBookingPage(p, btn) {
+    bkView.returnTo = btn || null;
+    if (bookingHashId() !== p.id) {
+      location.hash = `book/${encodeURIComponent(p.id)}`; // fires hashchange, which finds it already open
+      bkView.pushed = true; // so closing can step back instead of leaving an extra history entry
+    }
+    openBookingGuest(p.id);
+  }
+  function openBookingGuest(id) {
+    hidePopover();
+    const page = bookingById(id);
+    Object.assign(bkView, { pageId: id, step: "pick", slot: null, booked: null, notice: "", day: null,
+      form: { name: "", email: "", note: "" } });
+    const now = new Date();
+    const first = page && firstBookingDay(page, now, bookingBusy());
+    if (first) bkView.day = dayKey(first);
+    const m = first || now;
+    bkView.month = new Date(m.getFullYear(), m.getMonth(), 1);
+    if (!bkView.open) {
+      // Everything behind the guest view is out of reach (mouse, Tab and screen readers).
+      for (const n of document.body.children) {
+        if (n === bkEl.guest || n.tagName === "SCRIPT" || n.inert) continue;
+        n.inert = true;
+        bkView.inerted.push(n);
+      }
+    }
+    bkView.open = true;
+    bkEl.guest.hidden = false;
+    bkEl.copy.hidden = !page;
+    bkEl.guest.scrollTop = 0;
+    renderBookingGuest(".bk-title");
+  }
+  function hideBookingGuest() {
+    bkView.open = false;
+    bkView.pushed = false;
+    bkEl.guest.hidden = true;
+    bkEl.wrap.innerHTML = "";
+    bkView.inerted.forEach((n) => { n.inert = false; });
+    bkView.inerted = [];
+    const back = bkView.returnTo;
+    bkView.returnTo = null;
+    if (back && back.isConnected) back.focus();
+  }
+  // The close / back control: drop the #book/… part of the address and show the calendar again.
+  function closeBookingGuest() {
+    if (!bkView.open) return;
+    const pushed = bkView.pushed;
+    hideBookingGuest();
+    if (pushed) history.back();
+    else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  }
+
+  // Header: page name, length and location.
+  function bookingGuestHead(page) {
+    const head = document.createElement("header");
+    head.className = "bk-head";
+    head.innerHTML = `<div class="bk-kicker">Book time with me</div><h1 class="bk-title" id="bkTitle" tabindex="-1"></h1><div class="bk-meta"></div>`;
+    head.querySelector(".bk-title").textContent = page.name;
+    const meta = head.querySelector(".bk-meta");
+    const item = (icon, text) => {
+      const s = document.createElement("span");
+      s.className = "bk-meta-i";
+      s.innerHTML = icon;
+      s.append(text);
+      meta.appendChild(s);
+    };
+    item(BOOK_CLOCK, `${page.duration} min`);
+    if (page.location) item(POP_PIN, page.location);
+    return head;
+  }
+  const bookingDayLong = (d, year = false) =>
+    d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+  const bookingSlotLabel = (d) => { const h = d.getHours(); return `${h % 12 || 12}:${pad(d.getMinutes())}${h < 12 ? "am" : "pm"}`; };
+  function bookingTimeZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
+  }
+
+  // Re-render the guest view; the first match of focusSel (a selector, or a list tried in order) gets
+  // keyboard focus afterwards, so focus never falls back to the page behind.
+  function renderBookingGuest(focusSel) {
+    const page = bookingById(bkView.pageId);
+    const wrap = bkEl.wrap;
+    wrap.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "bk-card";
+    wrap.appendChild(card);
+    if (!page) {
+      card.classList.add("bk-missing");
+      card.innerHTML = `<h1 class="bk-title" id="bkTitle" tabindex="-1">This booking page doesn't exist</h1>
+        <p class="bk-text">The link may be mistyped, or the page was deleted. Booking pages are saved in the browser
+          they were made in, so the link only works there.</p>
+        <button type="button" class="bk-primary bk-home">Go to the calendar</button>`;
+      card.querySelector(".bk-home").addEventListener("click", closeBookingGuest);
+    } else if (bkView.step === "form" && bkView.slot) {
+      renderBookingForm(card, page);
+    } else if (bkView.step === "done" && bkView.booked) {
+      renderBookingDone(card, page);
+    } else {
+      bkView.step = "pick";
+      renderBookingPick(card, page);
+    }
+    bkEl.guest.setAttribute("aria-labelledby", "bkTitle");
+    const target = [].concat(focusSel || [], ".bk-title").map((sel) => wrap.querySelector(sel)).find(Boolean);
+    if (target) target.focus({ preventScroll: target.classList.contains("bk-title") });
+  }
+
+  function renderBookingPick(card, page) {
+    const now = new Date(), busy = bookingBusy(), today = startOfDay(now);
+    const last = addDays(today, page.ahead);
+    card.appendChild(bookingGuestHead(page));
+    if (bkView.notice) {
+      const n = document.createElement("p");
+      n.className = "bk-notice";
+      n.setAttribute("role", "status");
+      n.tabIndex = -1;
+      n.textContent = bkView.notice;
+      card.appendChild(n);
+      bkView.notice = "";
+    }
+    const body = document.createElement("div");
+    body.className = "bk-body";
+    card.appendChild(body);
+
+    // Left: the month, with days that have an open time in bold.
+    const m0 = bkView.month;
+    const cal = document.createElement("section");
+    cal.className = "bk-cal";
+    cal.setAttribute("aria-label", "Choose a day");
+    cal.innerHTML = `<div class="bk-monthbar"><h2 class="bk-month"></h2><div>
+        <button type="button" class="icon-btn small bk-prev" aria-label="Previous month">${BOOK_PREV}</button>
+        <button type="button" class="icon-btn small bk-next" aria-label="Next month">${BOOK_NEXT}</button></div></div>
+      <div class="bk-grid"></div>`;
+    cal.querySelector(".bk-month").textContent = `${MONTHS[m0.getMonth()]} ${m0.getFullYear()}`;
+    const prev = cal.querySelector(".bk-prev"), next = cal.querySelector(".bk-next");
+    prev.disabled = m0 <= new Date(today.getFullYear(), today.getMonth(), 1);
+    next.disabled = new Date(m0.getFullYear(), m0.getMonth() + 1, 1) > last;
+    const goMonth = (dir, sel) => {
+      bkView.month = new Date(m0.getFullYear(), m0.getMonth() + dir, 1);
+      // Keep the chosen day if it's in this month, else pick the month's first open day.
+      const cur = bkView.day && parseISO(bkView.day);
+      if (!cur || cur.getMonth() !== bkView.month.getMonth() || cur.getFullYear() !== bkView.month.getFullYear()) {
+        const n = new Date(bkView.month.getFullYear(), bkView.month.getMonth() + 1, 0).getDate();
+        bkView.day = null;
+        for (let i = 1; i <= n; i++) {
+          const d = new Date(bkView.month.getFullYear(), bkView.month.getMonth(), i);
+          if (bookingSlotsOn(page, d, now, busy).length) { bkView.day = dayKey(d); break; }
+        }
+      }
+      renderBookingGuest(sel);
+    };
+    prev.addEventListener("click", () => goMonth(-1, [".bk-prev:not(:disabled)", ".bk-next"]));
+    next.addEventListener("click", () => goMonth(1, [".bk-next:not(:disabled)", ".bk-prev"]));
+    const grid = cal.querySelector(".bk-grid");
+    for (const d of ["S", "M", "T", "W", "T", "F", "S"]) {
+      const h = document.createElement("div");
+      h.className = "bk-dow";
+      h.setAttribute("aria-hidden", "true");
+      h.textContent = d;
+      grid.appendChild(h);
+    }
+    for (let i = 0; i < m0.getDay(); i++) grid.appendChild(document.createElement("span"));
+    const daysIn = new Date(m0.getFullYear(), m0.getMonth() + 1, 0).getDate();
+    for (let i = 1; i <= daysIn; i++) {
+      const d = new Date(m0.getFullYear(), m0.getMonth(), i);
+      const open = bookingSlotsOn(page, d, now, busy).length > 0;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "bk-daybtn";
+      b.dataset.date = dayKey(d);
+      b.textContent = i;
+      b.disabled = !open;
+      if (sameDay(d, today)) b.classList.add("today");
+      if (open) b.setAttribute("aria-pressed", String(bkView.day === b.dataset.date));
+      b.setAttribute("aria-label", `${bookingDayLong(d)}${open ? "" : ", no open times"}`);
+      b.addEventListener("click", () => { bkView.day = b.dataset.date; renderBookingGuest(`.bk-daybtn[data-date="${b.dataset.date}"]`); });
+      grid.appendChild(b);
+    }
+    body.appendChild(cal);
+
+    // Right: the open times on the chosen day.
+    const times = document.createElement("section");
+    times.className = "bk-times";
+    times.setAttribute("aria-labelledby", "bkDayTitle");
+    times.innerHTML = `<h2 class="bk-day" id="bkDayTitle"></h2><div class="bk-slots"></div><p class="bk-tz"></p>`;
+    const dayTitle = times.querySelector(".bk-day"), slotsEl = times.querySelector(".bk-slots");
+    const slots = bkView.day ? bookingSlotsOn(page, parseISO(bkView.day), now, busy) : [];
+    if (bkView.day && slots.length) {
+      dayTitle.textContent = bookingDayLong(parseISO(bkView.day));
+      for (const sl of slots) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "bk-slot";
+        b.dataset.start = toISO(sl.start);
+        b.textContent = bookingSlotLabel(sl.start);
+        b.setAttribute("aria-label", `${bookingSlotLabel(sl.start)}, ${bookingDayLong(sl.start)}`);
+        b.addEventListener("click", () => {
+          bkView.slot = { start: toISO(sl.start), end: toISO(sl.end) };
+          bkView.step = "form";
+          renderBookingGuest(FINE_POINTER ? ".bk-in-name" : ".bk-back");
+        });
+        slotsEl.appendChild(b);
+      }
+    } else {
+      const weeks = page.ahead / 7;
+      const anyDay = firstBookingDay(page, now, busy);
+      dayTitle.textContent = anyDay ? "Pick a day" : "No open times";
+      const p = document.createElement("p");
+      p.className = "bk-text";
+      p.textContent = anyDay ? "Days in bold have open times."
+        : `There are no open times in the next ${weeks} week${weeks === 1 ? "" : "s"}. Check back later.`;
+      slotsEl.appendChild(p);
+    }
+    const tz = bookingTimeZone();
+    times.querySelector(".bk-tz").textContent = tz ? `Times are in your time zone (${tz.replace(/_/g, " ")})` : "Times are in your time zone";
+    body.appendChild(times);
+  }
+
+  function renderBookingForm(card, page) {
+    const s = parseISO(bkView.slot.start), e = parseISO(bkView.slot.end);
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "bk-back";
+    back.innerHTML = `${BOOK_BACK}<span>Back to times</span>`;
+    back.addEventListener("click", () => bookingBackToTimes());
+    card.appendChild(back);
+    const head = bookingGuestHead(page);
+    const when = document.createElement("span");
+    when.className = "bk-meta-i bk-when";
+    when.innerHTML = POP_CAL;
+    when.append(`${bookingDayLong(s, true)} · ${fmtRange(s, e)}`);
+    head.querySelector(".bk-meta").prepend(when);
+    card.appendChild(head);
+    const form = document.createElement("form");
+    form.className = "bk-form";
+    form.noValidate = true;
+    form.autocomplete = "on";
+    form.innerHTML = `
+      <label class="bk-field"><span class="bk-label">Name <span aria-hidden="true">*</span></span>
+        <input class="bk-input bk-in-name" type="text" name="name" maxlength="100" autocomplete="name" required aria-required="true"></label>
+      <label class="bk-field"><span class="bk-label">Email <span aria-hidden="true">*</span></span>
+        <input class="bk-input bk-in-email" type="email" name="email" maxlength="200" autocomplete="email" required aria-required="true"></label>
+      <label class="bk-field"><span class="bk-label">Anything to share before the meeting? (optional)</span>
+        <textarea class="bk-input bk-in-note" name="note" rows="3" maxlength="1000"></textarea></label>
+      <div class="bk-err" role="alert"></div>
+      <button type="submit" class="bk-primary">Confirm booking</button>`;
+    const nameIn = form.querySelector(".bk-in-name"), emailIn = form.querySelector(".bk-in-email"), noteIn = form.querySelector(".bk-in-note");
+    const err = form.querySelector(".bk-err");
+    nameIn.value = bkView.form.name;
+    emailIn.value = bkView.form.email;
+    noteIn.value = bkView.form.note;
+    const keep = () => { bkView.form = { name: nameIn.value, email: emailIn.value, note: noteIn.value }; };
+    for (const input of [nameIn, emailIn, noteIn]) {
+      input.addEventListener("input", () => { keep(); input.removeAttribute("aria-invalid"); err.textContent = ""; });
+    }
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      keep();
+      const name = nameIn.value.trim(), email = emailIn.value.trim();
+      const fail = (input, msg) => { input.setAttribute("aria-invalid", "true"); err.textContent = msg; input.focus(); };
+      if (!name) return fail(nameIn, "Please enter your name.");
+      if (!BOOK_EMAIL_RE.test(email)) return fail(emailIn, "Please enter a valid email address.");
+      confirmBooking(page, name, email, noteIn.value.trim());
+    });
+    card.appendChild(form);
+  }
+  function bookingBackToTimes() {
+    const start = bkView.slot && bkView.slot.start;
+    bkView.step = "pick";
+    bkView.slot = null;
+    renderBookingGuest(start ? `.bk-slot[data-start="${start}"]` : null);
+  }
+
+  function confirmBooking(page, name, email, note) {
+    const s = parseISO(bkView.slot.start);
+    // Check again: something may have taken the time since the list was shown.
+    const open = bookingSlotsOn(page, s, new Date(), bookingBusy()).some((x) => x.start.getTime() === s.getTime());
+    if (!open) {
+      bkView.step = "pick";
+      bkView.slot = null;
+      bkView.notice = "Sorry, that time is no longer available. Please pick another.";
+      renderBookingGuest(".bk-notice");
+      return;
+    }
+    const ev = {
+      id: uid(), title: `${page.name} with ${name}`, start: bkView.slot.start, end: bkView.slot.end, allDay: false,
+      cal: calById(page.cal) ? page.cal : defaultCalId(), location: page.location || "",
+    };
+    pushUndo();
+    events.push(ev);
+    saveEvents();
+    // Events have no description field, so the guest's details go in a text file attached to the event
+    // (it shows in the event's popup; click it to read).
+    upsertFile(ev.id, "Booking details.txt", [
+      `Booked through your “${page.name}” booking page.`, "",
+      `Name: ${name}`, `Email: ${email}`, ...(note ? ["", "Note:", note] : []),
+    ].join("\n"), "user");
+    saveAttachments();
+    render();
+    setStatus(`Booked “${escapeHTML(ev.title)}” through your booking page. <button class="undo" type="button">Undo</button>`);
+    bkView.booked = { start: ev.start, end: ev.end, name, email, location: ev.location };
+    bkView.slot = null;
+    bkView.form = { name: "", email: "", note: "" };
+    bkView.step = "done";
+    renderBookingGuest(".bk-title");
+  }
+
+  function renderBookingDone(card, page) {
+    const b = bkView.booked;
+    const s = parseISO(b.start), e = parseISO(b.end);
+    card.classList.add("bk-done");
+    card.innerHTML = `<div class="bk-done-icon">${BOOK_DONE}</div>
+      <h1 class="bk-title" id="bkTitle" tabindex="-1">You're booked</h1>
+      <p class="bk-text bk-done-what"></p>
+      <div class="bk-meta bk-done-meta"></div>
+      <p class="bk-text bk-done-who"></p>
+      <button type="button" class="bk-primary bk-again">Book another time</button>`;
+    card.querySelector(".bk-done-what").textContent = `${page.name} with ${b.name}`;
+    const meta = card.querySelector(".bk-done-meta");
+    const item = (icon, text) => {
+      const sp = document.createElement("span");
+      sp.className = "bk-meta-i";
+      sp.innerHTML = icon;
+      sp.append(text);
+      meta.appendChild(sp);
+    };
+    item(POP_CAL, `${bookingDayLong(s, true)} · ${fmtRange(s, e)}`);
+    item(BOOK_CLOCK, `${page.duration} min`);
+    if (b.location) item(POP_PIN, b.location);
+    card.querySelector(".bk-done-who").textContent = `Booked for ${b.email}.`;
+    card.querySelector(".bk-again").addEventListener("click", () => {
+      bkView.step = "pick";
+      bkView.booked = null;
+      bkView.day = dayKey(s);
+      // The day just booked may have no times left: move on to the next one that does.
+      const now = new Date(), busy = bookingBusy();
+      if (!bookingSlotsOn(page, s, now, busy).length) { const f = firstBookingDay(page, now, busy); bkView.day = f ? dayKey(f) : null; }
+      const m = bkView.day ? parseISO(bkView.day) : now;
+      bkView.month = new Date(m.getFullYear(), m.getMonth(), 1);
+      renderBookingGuest(".bk-title");
+    });
+  }
+
+  bkEl.close.addEventListener("click", closeBookingGuest);
+  bkEl.copy.addEventListener("click", () => { const p = bookingById(bkView.pageId); if (p) copyBookingLink(p, bkEl.copy); });
+  const bookingEscape = () => {
+    if (bkView.step === "form") bookingBackToTimes();
+    else closeBookingGuest();
+  };
+  // The calendar's keyboard shortcuts (W, M, T, Ctrl+Z, …) don't apply while the guest view is open.
+  bkEl.guest.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); bookingEscape(); }
+  });
+  // …even if focus somehow ends up outside it (e.g. on the page body): Tab brings it back in.
+  document.addEventListener("keydown", (e) => {
+    if (!bkView.open || bkEl.guest.contains(e.target)) return;
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); bookingEscape(); }
+    else if (e.key === "Tab") { e.preventDefault(); bkEl.guest.focus(); }
+  }, true);
+  window.addEventListener("hashchange", syncBookingHash);
+  renderBookingList();
+  syncBookingHash();
+
   // ---------- Help tour (one per mode) ----------
   // Sections are separate topics; each step highlights an element (if it's on screen) and explains it.
   // Each step can list "demo" keys: things the tour opens or puts on screen for that step (see DEMOS).
@@ -5089,6 +5757,6 @@
   renderMeetList();
   syncQuickAdd();
   setMode(mode);
-  try { if (!localStorage.getItem(WELCOME_KEY)) setTimeout(() => openTour("welcome"), 300); } catch { /* storage blocked: skip it */ }
+  try { if (!localStorage.getItem(WELCOME_KEY) && !bkView.open) setTimeout(() => openTour("welcome"), 300); } catch { /* storage blocked: skip it */ }
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();
