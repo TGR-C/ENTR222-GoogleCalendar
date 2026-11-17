@@ -187,6 +187,7 @@
 
   // ---------- rendering ----------
   function render() {
+    updateTaskSchedules();
     el.main.dataset.view = view;
     el.viewLabel.textContent = view === "month" ? "Month" : "Week";
     renderHeader();
@@ -538,15 +539,31 @@
   }
 
   // Click-to-create: the popover only asks for a description; Claude fills in the rest.
+  const CREATE_MODE_KEY = "nl-calendar-create-mode";
   function showCreatePopover() {
     const s = parseISO(draft.start), e = parseISO(draft.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
-    p.innerHTML = `${CLOSE_BTN}<div class="pnew-when"></div>`;
-    // Month view picks a day, not a time: the time comes from the description (default 9–10am).
+    p.innerHTML = `${CLOSE_BTN}
+      <div class="pnew-when"></div>
+      <div class="pnew-modes" role="tablist" aria-label="How to create">
+        <button type="button" role="tab" data-cmode="ai">✨ Describe</button>
+        <button type="button" role="tab" data-cmode="title">Title</button>
+      </div>
+      <div class="pnew-pane" data-pane="ai"></div>
+      <form class="pnew-pane pnew-title" data-pane="title" autocomplete="off">
+        <input type="text" class="pnew-title-input" maxlength="200" placeholder="Add title" aria-label="Title">
+        <div class="pnew-title-row">
+          <span class="pnew-title-hint"></span>
+          <button type="submit" class="pnew-save">Save</button>
+        </div>
+      </form>`;
+    // Month view picks a day, not a time.
     p.querySelector(".pnew-when").textContent = draft.dayOnly ? dayStr : `${dayStr} · ${fmtRange(s, e)}`;
     p.querySelector("[data-close]").onclick = () => { if (draft) draft.busy = false; hidePopover(); };
-    const slot = { start: draft.start, end: draft.end };
+    const slot = { start: draft.start, end: draft.end, dayOnly: !!draft.dayOnly };
+
+    // Option 1: describe it to the AI.
     const bar = aiBar({
       placeholder: "Describe the event",
       hint: draft.dayOnly
@@ -555,16 +572,56 @@
       busyText: "Creating…",
       onSubmit: async (text) => {
         if (draft) draft.busy = true; // keep the placeholder while the request runs
-        try { return await popoverRequest(text, { slot }); }
+        try { return await popoverRequest(text, { slot: { start: slot.start, end: slot.end } }); }
         finally { if (draft) draft.busy = false; }
       },
     });
-    p.appendChild(bar.wrap);
+    p.querySelector('[data-pane="ai"]').appendChild(bar.wrap);
+
+    // Option 2: just type a title (no AI).
+    const form = p.querySelector(".pnew-title");
+    const titleInput = form.querySelector("input");
+    const calName = (calById(defaultCalId()) || {}).name || "";
+    form.querySelector(".pnew-title-hint").textContent = (slot.dayOnly ? "All-day event" : fmtRange(s, e)) + (calName ? ` · ${calName}` : "");
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const title = titleInput.value.trim();
+      if (!title) { titleInput.focus(); return; }
+      const span = slot.dayOnly ? allDaySpan(s) : { start: slot.start, end: slot.end, allDay: false };
+      const created = { id: uid(), title, cal: defaultCalId(), location: "", ...span };
+      pushUndo();
+      events.push(created);
+      saveEvents();
+      if (draft) { draft.busy = false; draft = null; }
+      el.popover.hidden = true;
+      flashIds = new Set([created.id]);
+      render();
+      flashIds = new Set();
+      setStatus(`Created “${escapeHTML(title)}”. <button class="undo" type="button">Undo</button>`);
+    });
+    titleInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); }
+      else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); if (draft) draft.busy = false; hidePopover(); }
+    });
+
+    // Switch between the two; remember the last one used.
+    const setCMode = (m, focus = true) => {
+      try { localStorage.setItem(CREATE_MODE_KEY, m); } catch { /* ignore */ }
+      p.querySelectorAll("[data-cmode]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.cmode === m)));
+      p.querySelectorAll("[data-pane]").forEach((pane) => { pane.hidden = pane.dataset.pane !== m; });
+      if (focus && FINE_POINTER) (m === "title" ? titleInput : bar.input).focus(); // don't pop the keyboard up on phones
+    };
+    p.querySelectorAll("[data-cmode]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); setCMode(b.dataset.cmode); }));
+    let start = "ai";
+    try { if (localStorage.getItem(CREATE_MODE_KEY) === "title") start = "title"; } catch { /* ignore */ }
+
     p.hidden = false;
+    setCMode(start, false);
     const anchor = document.querySelector(".draft");
     if (anchor) placePopover(anchor);
-    if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
+    setCMode(start);
   }
+
 
   // ---------- AI command ----------
   async function callSchedule(command, { slot = null, eventId = null } = {}) {
@@ -831,7 +888,7 @@
         changed.push(task);
       } else if (t.type === "update") {
         const task = tasks.find((x) => x.id === t.id);
-        if (task && t.title.trim()) { task.title = t.title.trim(); changed.push(task); }
+        if (task && t.title.trim()) { renameTask(task.id, t.title.trim()); changed.push(task); }
       } else if (t.type === "complete") {
         const task = tasks.find((x) => x.id === t.id);
         if (task) { changed.push(task); setTaskDone(task.id, true, task.title); }
@@ -1220,6 +1277,13 @@
     setStatus(`Deleted ${ev.taskId ? "task " : ""}“${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
   }
 
+  // A task and its calendar entry always share one title.
+  function renameTask(taskId, title) {
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) task.title = title;
+    events.forEach((x) => { if (x.taskId === taskId) x.title = title; });
+  }
+
   // ---------- task list (sidebar) ----------
   const CHECK_SVG = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
 
@@ -1229,12 +1293,25 @@
       const li = document.createElement("li");
       li.className = "task" + (flash.has(t.id) ? " flash" : "");
       li.dataset.id = t.id;
-      li.innerHTML = `<button class="tcheck" type="button" aria-label="Mark complete" title="Mark complete">${CHECK_SVG}</button><span class="ttitle"></span>`;
+      li.innerHTML = `<button class="tcheck" type="button" aria-label="Mark complete" title="Mark complete">${CHECK_SVG}</button><span class="tbody"><span class="ttitle"></span><span class="tsched"></span></span>`;
       li.querySelector(".ttitle").textContent = t.title;
       li.title = "Click to edit · drag onto the calendar to schedule";
       el.taskList.appendChild(li);
     }
     el.taskEmpty.hidden = tasks.length > 0;
+    updateTaskSchedules();
+  }
+  // The little "Tue, Nov 17 · 3pm" under a scheduled task (refreshed on every calendar render).
+  function updateTaskSchedules() {
+    el.taskList.querySelectorAll("li.task[data-id]").forEach((li) => {
+      const label = li.querySelector(".tsched");
+      if (!label) return;
+      const ev = events.find((x) => x.taskId === li.dataset.id);
+      if (!ev) { label.textContent = ""; label.hidden = true; return; }
+      const s = parseISO(ev.start);
+      label.textContent = ev.allDay ? `${shortDate(s)} · All day` : `${shortDate(s)} · ${fmtTime(s)}`;
+      label.hidden = false;
+    });
   }
 
   // Inline editor for a task title. For a new task, `li` is a fresh row not yet in `tasks`.
@@ -1265,8 +1342,10 @@
         saveTasks();
       } else if (save && task && val && val !== task.title) {
         pushUndo();
-        task.title = val;
+        renameTask(task.id, val);
         saveTasks();
+        saveEvents();
+        render();
       }
       renderTasks();
     };
@@ -1376,9 +1455,10 @@
       t.target = { allDay: false, start: new Date(d.getTime() + 9 * 3600000) };
     }
     const where = t.ghost.querySelector(".tg-where");
+    const verb = events.some((x) => x.taskId === t.task.id) ? "Move to " : "";
     where.textContent = !t.target ? "Drop on the calendar"
-      : t.target.allDay ? `All day · ${shortDate(t.target.date)}`
-      : `${shortDate(t.target.start)}, ${fmtRange(t.target.start, new Date(t.target.start.getTime() + 3600000))}`;
+      : verb + (t.target.allDay ? `All day · ${shortDate(t.target.date)}`
+      : `${shortDate(t.target.start)}, ${fmtRange(t.target.start, new Date(t.target.start.getTime() + 3600000))}`);
     t.ghost.classList.toggle("no-target", !t.target);
   }
 
@@ -1418,17 +1498,25 @@
     setTimeout(() => (suppressClick = false), 0);
     if (cancelled || !t.target) return;
 
-    const ev = { id: uid(), title: t.task.title, cal: tasksCalId(), location: "", taskId: t.task.id, done: false };
-    if (t.target.allDay) Object.assign(ev, allDaySpan(t.target.date));
-    else Object.assign(ev, { start: toISO(t.target.start), end: toISO(new Date(t.target.start.getTime() + 3600000)) });
+    // A task has one calendar entry (like Google): if it's already scheduled, move that entry.
+    const existing = events.find((x) => x.taskId === t.task.id);
+    const span = t.target.allDay ? allDaySpan(t.target.date)
+      : { start: toISO(t.target.start), end: toISO(new Date(t.target.start.getTime() + 3600000)), allDay: false };
     pushUndo();
-    events.push(ev);
+    let ev;
+    if (existing) {
+      ev = existing;
+      Object.assign(ev, span, { title: t.task.title, done: false });
+    } else {
+      ev = { id: uid(), title: t.task.title, cal: tasksCalId(), location: "", taskId: t.task.id, done: false, ...span };
+      events.push(ev);
+    }
     saveEvents();
     flashIds = new Set([ev.id]);
     render();
     flashIds = new Set();
     const when = t.target.allDay ? `${shortDate(t.target.date)} (all day)` : `${shortDate(t.target.start)} at ${fmtTime(t.target.start)}`;
-    setStatus(`Scheduled “${escapeHTML(ev.title)}” for ${escapeHTML(when)}. <button class="undo" type="button">Undo</button>`);
+    setStatus(`${existing ? "Moved" : "Scheduled"} “${escapeHTML(ev.title)}” ${existing ? "to" : "for"} ${escapeHTML(when)}. <button class="undo" type="button">Undo</button>`);
   }
   el.taskList.addEventListener("pointerup", (e) => endTaskDrag(e, false));
   el.taskList.addEventListener("pointercancel", (e) => endTaskDrag(e, true));

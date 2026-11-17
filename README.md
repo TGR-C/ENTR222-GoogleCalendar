@@ -11,7 +11,8 @@ You can also work with the grid directly:
 
 - **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
 - **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
-  describe it, and Claude fills in the title/details using the slot you picked.
+  describe it, and Claude fills in the title/details using the slot you picked — or switch the popup to
+  **Title** to just type a title and save (month view: saves as an all-day event).
 - **Click an event** to see its details and describe a change right there ("move to 3pm",
   "make it 2 hours", "rename to Design review", "delete it"); Claude knows which event you mean.
 - **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
@@ -21,7 +22,9 @@ You can also work with the grid directly:
   completes it. The AI box can manage tasks too ("remind me to call mom", "done with the pitch deck").
 - **Drag a task onto the calendar** to schedule it: on the week grid it becomes a 1-hour event at that
   time; on a day in month view, 9–10am that day. Drop it on a day header (week) or the date strip
-  (month) — highlighted "All day" while dragging — to make an all-day event. The task stays in the list.
+  (month) — highlighted "All day" while dragging — to make an all-day event. The task stays in the list
+  (showing when it's scheduled) and has a single calendar entry: dragging it again moves that entry, and
+  renaming the task renames the entry.
 - Scheduled tasks show a **checkbox** on the calendar: checking it strikes the event through and takes the
   task off the list (unchecking puts it back); completing the task in the sidebar checks its events too.
 - Dragging an event near the top/bottom edge of the week grid scrolls it.
