@@ -48,7 +48,8 @@ You can also work with the grid directly:
   nothing scheduled, gray where an event takes the time. Each of your events appears as one line (like the
   month view) in the block where it starts, with a bar in its calendar colour running down to where it ends
   and the end time at the bottom; overlapping events get side-by-side lanes. Drag across blocks to mark
-  time free or busy.
+  time available or not available, or reset to your calendar. If an event later lands on time you marked
+  available, a red warning appears under the Whentomeet line (with a one-click fix).
 - **Group availability** shows only the overlap (greener = more people free); click a time to see who is
   and isn't available. Click a person to see just their availability.
 - Close with the ✕ or by clicking the top line again. Everything is stored in the browser.

@@ -238,6 +238,23 @@ body[data-mode="timeline"] .logo-tl { display: block; }
 .wtm-block .wtm-pt b { white-space: normal; font-size: 14px; }
 .wtm-block .wtm-pt small { white-space: normal; }
 .wtm-x { color: #5f6368; flex-shrink: 0; }
+.wtm-warn { color: #d93025; }
+.wtm-warn[hidden] { display: none !important; }
+small.wtm-warn { font-size: 11px; font-weight: 500; white-space: normal; }
+.wtm-warn-row {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 6px; row-gap: 2px;
+  margin-top: -4px; padding: 0 6px; font-size: 12px; font-weight: 500;
+}
+.wtm-warn-row svg { fill: currentColor; }
+.wtm-warn-fix { grid-column: 2; justify-self: start; font-size: 12px; font-weight: 500; color: #1967d2; padding: 2px 6px; margin-left: -6px; border-radius: 4px; }
+.wtm-warn-fix:hover { background: #e8f0fe; }
+.wtm-reset {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; margin-top: 2px; height: 30px; padding: 0 12px;
+  border-radius: 15px; border: 1px solid var(--line); font: 500 12px "Google Sans", Roboto, sans-serif; color: #1967d2;
+}
+.wtm-reset svg { fill: currentColor; }
+.wtm-reset:hover:not(:disabled) { background: #e8f0fe; }
+.wtm-reset:disabled { color: var(--text-2); opacity: .6; cursor: default; }
 .wtm-seg { display: flex; border: 1px solid var(--line); border-radius: 18px; padding: 2px; }
 .wtm-seg button { flex: 1; height: 30px; border-radius: 15px; font: 500 12px "Google Sans", Roboto, sans-serif; color: var(--text-2); }
 .wtm-seg button[aria-selected="true"] { background: #e6f4ea; color: #137333; }
@@ -298,6 +315,7 @@ body[data-mode="timeline"] .logo-tl { display: block; }
 .wtm-cell.busy:hover { background: #d5d8db; }
 .wtm-cell.g { cursor: pointer; }
 .wtm-cell.sel { outline: 3px solid #137333; outline-offset: -3px; }
+.wtm-cell.conflict { outline: 2px dashed #d93025; outline-offset: -2px; }
 .mg-count { font: 500 11px Roboto, sans-serif; color: #0d652d; opacity: .85; }
 /* your events: a bar in the calendar colour from start to end, with the end time at the bottom */
 .mg-bars { position: relative; pointer-events: none; z-index: 2; }

@@ -89,6 +89,7 @@
   let draft = null;        // {start, end} slot picked by click-to-create
   let drag = null;         // active pointer interaction on the grid
   let suppressClick = false;
+  let meetsReady = false; // Whentomeet state is set up further down
 
   function loadEvents() {
     try {
@@ -188,6 +189,7 @@
   // ---------- rendering ----------
   function render() {
     updateTaskSchedules();
+    if (typeof updateMeetWarnings === "function" && meetsReady) updateMeetWarnings();
     el.main.dataset.view = view;
     el.viewLabel.textContent = view === "month" ? "Month" : "Week";
     renderHeader();
@@ -2769,6 +2771,7 @@
   const AVATAR_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#12b5cb", "#f538a0", "#5f6368"];
   const SLOT_MIN = 30;
   let meets = loadJSON(MEET_KEY, []);
+  meetsReady = true;
   const saveMeets = () => { try { localStorage.setItem(MEET_KEY, JSON.stringify(meets)); } catch { /* storage full */ } };
   const wtm = { wizard: null, active: null, view: "mine", member: null, sel: null, paint: null };
   const wz = {
@@ -2840,6 +2843,48 @@
     }
     return [...out];
   }
+  // Times you marked available that now overlap one of your events (e.g. an event was moved or edited
+  // after you painted). Defaults can't conflict: a time with an event is "not available" by default.
+  function meetConflicts(m) {
+    // Weekday Whentomeets are checked against the week being viewed (or this week, outside the mode).
+    const ref = wtm.active === m.id ? weekStart : startOfWeek(new Date());
+    const out = [];
+    for (const [k, free] of Object.entries(m.mine)) {
+      if (!free) continue;
+      const [dk, si] = k.split("#");
+      const i = Number(si);
+      if (i >= slotsPerDay(m)) continue;
+      if (m.mode === "dates" ? !m.dates.includes(dk) : !m.days.includes(Number(dk))) continue;
+      const date = m.mode === "dates" ? parseISO(dk) : addDays(ref, Number(dk));
+      const [s0, e0] = slotTimes(m, date, i);
+      if (busyAt(s0, e0)) out.push(k);
+    }
+    return out;
+  }
+  const conflictText = (n) => `${n} available time${n === 1 ? "" : "s"} overlap${n === 1 ? "s" : ""} your events`;
+  // Refresh the red overlap warnings (sidebar list + open Whentomeet) without rebuilding anything.
+  function updateMeetWarnings() {
+    document.querySelectorAll(".wtm-warn[data-meet]").forEach((w) => {
+      const m = meetById(w.dataset.meet);
+      const n = m ? meetConflicts(m).length : 0;
+      w.hidden = !n;
+      const t = w.querySelector(".wtm-warn-text") || w;
+      if (n) t.textContent = conflictText(n);
+    });
+  }
+  function fixConflicts(m) {
+    for (const k of meetConflicts(m)) delete m.mine[k]; // back to the default: an event means not available
+    saveMeets();
+    renderMeetGrid();
+    renderMeetPanel();
+  }
+  function resetMine(m) {
+    m.mine = {};
+    saveMeets();
+    renderMeetGrid();
+    renderMeetPanel();
+  }
+
   function addMember(m, name, email) {
     if (m.members.some((p) => p.email.toLowerCase() === email.toLowerCase())) return false;
     m.members.push({ id: uid(), name, email, avail: randomAvail(m, email.toLowerCase()) });
@@ -3140,16 +3185,24 @@
     wz.items.innerHTML = "";
     for (const m of meets) {
       const li = document.createElement("li");
+      li.className = "wtm-li";
       const b = document.createElement("button");
       b.type = "button";
       b.className = "wtm-item";
       b.innerHTML = `${MEET_ICON}<span class="wtm-pt"><b></b><small></small></span>`;
       b.querySelector("b").textContent = `Whentomeet for ${m.name}`;
-      b.querySelector("small").textContent = `${m.members.length + 1} people · ${meetSummary(m)}`;
+      const count = m.members.length + 1;
+      b.querySelector("small").textContent = `${count} ${count === 1 ? "person" : "people"} · ${meetSummary(m)}`;
+      const warn = document.createElement("small");
+      warn.className = "wtm-warn";
+      warn.dataset.meet = m.id;
+      warn.hidden = true;
+      b.querySelector(".wtm-pt").appendChild(warn);
       b.addEventListener("click", (e) => { e.stopPropagation(); enterMeet(m.id); });
       li.appendChild(b);
       wz.items.appendChild(li);
     }
+    updateMeetWarnings();
   }
 
   // ----- Whentomeet mode -----
@@ -3273,7 +3326,10 @@
         } else if (member) {
           cell.classList.add(memberFree(member, dk, i) ? "free" : "busy");
         } else {
-          cell.classList.add(mineFree(m, dk, i, date) ? "free" : "busy");
+          const free = mineFree(m, dk, i, date);
+          cell.classList.add(free ? "free" : "busy");
+          // Marked available but an event is there now: outline it so the overlap is easy to spot.
+          if (free && busyAt(...slotTimes(m, date, i))) { cell.classList.add("conflict"); cell.title = "Marked available, but an event overlaps this time"; }
           for (const ev of (lines[i] || [])) {
             const line = document.createElement("div");
             line.className = "mg-ev";
@@ -3404,9 +3460,11 @@
   function previewPaint() {
     const m = activeMeet();
     wz.grid.querySelectorAll(".wtm-cell").forEach((cell) => {
-      const free = inPaintRect(cell) ? wtm.paint.target : mineFree(m, cell.dataset.dk, Number(cell.dataset.i), parseISO(cell.dataset.date));
+      const date = parseISO(cell.dataset.date), i = Number(cell.dataset.i);
+      const free = inPaintRect(cell) ? wtm.paint.target : mineFree(m, cell.dataset.dk, i, date);
       cell.classList.toggle("free", free);
       cell.classList.toggle("busy", !free);
+      cell.classList.toggle("conflict", free && busyAt(...slotTimes(m, date, i)));
     });
   }
   function meetUp(e) {
@@ -3421,6 +3479,9 @@
     }
     wtm.paint = null;
     renderMeetGrid();
+    const reset = wz.panel.querySelector(".wtm-reset");
+    if (reset && m) reset.disabled = !Object.keys(m.mine).length;
+    updateMeetWarnings();
   }
 
   // Sidebar panel while a Whentomeet is open.
@@ -3436,6 +3497,11 @@
         <button type="button" class="icon-btn small wtm-x" aria-label="Close Whentomeet" title="Close Whentomeet">
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
+      </div>
+      <div class="wtm-warn wtm-warn-row" data-meet="${m.id}" hidden>
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <span class="wtm-warn-text"></span>
+        <button type="button" class="wtm-warn-fix">Mark not available</button>
       </div>
       <div class="wtm-seg" role="tablist">
         <button type="button" role="tab" data-v="mine">My availability</button>
@@ -3453,6 +3519,7 @@
     p.querySelector(".wtm-block b").textContent = `Whentomeet for ${m.name}`;
     p.querySelector(".wtm-block small").textContent = meetSummary(m);
     p.querySelector(".wtm-block").addEventListener("click", (e) => { e.stopPropagation(); exitMeet(); });
+    p.querySelector(".wtm-warn-fix").addEventListener("click", (e) => { e.stopPropagation(); fixConflicts(m); });
     p.querySelector(".wtm-x").addEventListener("click", (e) => { e.stopPropagation(); exitMeet(); });
     p.querySelectorAll("[data-v]").forEach((b) => {
       b.setAttribute("aria-selected", String(wtm.view === b.dataset.v));
@@ -3461,8 +3528,17 @@
 
     const help = p.querySelector(".wtm-help");
     if (wtm.view === "mine") {
-      help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Busy</div>
-        Green is free time with nothing on your calendar; gray already has an event. Drag on the calendar to mark more time free or busy.`;
+      help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Not available</div>
+        By default, times with an event on your calendar are not available and the rest are available.
+        Drag on the calendar to mark times available or not available.`;
+      const reset = document.createElement("button");
+      reset.type = "button";
+      reset.className = "wtm-reset";
+      reset.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>Reset to my calendar`;
+      reset.title = "Clear what you painted and go back to the default (times with events are not available)";
+      reset.disabled = !Object.keys(m.mine).length;
+      reset.addEventListener("click", (e) => { e.stopPropagation(); resetMine(m); });
+      help.appendChild(reset);
     } else if (wtm.view === "group") {
       help.innerHTML = `<div class="wtm-scale"><span>0/${people}</span><span class="bar"></span><span>${people}/${people}</span></div>
         The greener a time, the more people are free. Click a time to see who.`;
@@ -3535,6 +3611,7 @@
     const copy = p.querySelector(".wtm-copy");
     copy.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></svg>Copy shareable link`;
     copy.addEventListener("click", (e) => { e.stopPropagation(); copyLink(m, copy); });
+    updateMeetWarnings();
     p.querySelector(".wtm-del").addEventListener("click", (e) => {
       e.stopPropagation();
       if (!window.confirm(`Delete “Whentomeet for ${m.name}”? Everyone's availability for it will be lost.`)) return;
