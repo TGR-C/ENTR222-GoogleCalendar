@@ -22,6 +22,9 @@ You can also work with the grid directly:
 - **Drag a task onto the calendar** to schedule it: on the week grid it becomes a 1-hour event at that
   time; on a day in month view, 9–10am that day. Drop it on a day header (week) or the date strip
   (month) — highlighted "All day" while dragging — to make an all-day event. The task stays in the list.
+- Scheduled tasks show a **checkbox** on the calendar: checking it strikes the event through and takes the
+  task off the list (unchecking puts it back); completing the task in the sidebar checks its events too.
+- Dragging an event near the top/bottom edge of the week grid scrolls it.
 - **All-day events** appear under the day headers (week) and as filled bars (month); they can be
   dragged to another day and created by the AI ("holiday on Friday").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.

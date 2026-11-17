@@ -69,6 +69,7 @@ To-do list ("tasks" in the context; each task has only an id and a title, no tim
 - task create (id ""): the user wants something on their to-do list with no specific time, e.g. "add X to my tasks", "remind me to X", "I need to X", "to-do: X".
 - task update: rename an existing task (use its id).
 - task complete: the user finished it or wants it off the list ("done with X", "check off X", "remove X from my tasks").
+- Events with is_task true are tasks the user placed on the calendar; done tells whether they were checked off. Treat them like other events for moving, renaming, or deleting.
 - Something with a specific day or time is a calendar event, not a task. If the user asks to schedule an existing task, create an event with the task's title and leave the task alone unless they say it is done.
 - If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration.
 - If "selected_event_id" is present, the user opened that event and is describing a change to it: "it", "this", or a bare instruction ("move to 3pm", "make it longer", "delete") refers to that event. Only touch other events if the request clearly names them.
@@ -100,8 +101,9 @@ export default async function handler(req, res) {
     ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
       ? { selected_event_id: eventId }
       : {}),
-    events: events.map(({ id, title, start, end, color, location, allDay }) => ({
+    events: events.map(({ id, title, start, end, color, location, allDay, taskId, done }) => ({
       id, title, start, end, color, location: location || "", all_day: !!allDay,
+      ...(taskId ? { is_task: true, done: !!done } : {}),
     })),
     tasks: (Array.isArray(tasks) ? tasks : []).map(({ id, title }) => ({ id, title })),
   };

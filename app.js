@@ -260,6 +260,11 @@
     div.querySelector(".etitle").textContent = ev.title || "(No title)";
     div.querySelector(".etime").textContent = fmtRange(s, e) + (ev.location && mins >= 60 ? `, ${ev.location}` : "");
     div.dataset.id = ev.id;
+    if (ev.taskId) {
+      div.classList.add("is-task");
+      if (ev.done) div.classList.add("done");
+      div.querySelector(".etitle").prepend(checkboxEl(ev));
+    }
     // Only the segment that holds the real end time gets a resize handle.
     if (e - dayStart <= 86400000) {
       const h = document.createElement("div");
@@ -391,6 +396,16 @@
     p.querySelector(".ploc").textContent = ev.location || "";
     if (!ev.location) p.querySelector(".ploc").remove();
     p.querySelector("[data-close]").onclick = hidePopover;
+    p.dataset.eventId = ev.id;
+    if (ev.taskId) {
+      if (ev.done) p.querySelector(".ptitle").classList.add("done");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pdone";
+      b.textContent = ev.done ? "Mark as not completed" : "Mark completed";
+      b.onclick = (e) => { e.stopPropagation(); toggleTaskEvent(ev.id); };
+      p.querySelector(".pinfo").appendChild(b);
+    }
 
     const bar = aiBar({
       placeholder: "Describe a change",
@@ -405,7 +420,10 @@
     if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
   }
   function hidePopover() {
+    // Don't leave focus in a hidden input, or keyboard shortcuts would think we're still typing.
+    if (el.popover.contains(document.activeElement)) document.activeElement.blur();
     el.popover.hidden = true;
+    delete el.popover.dataset.eventId;
     clearDraft();
   }
   // Remove the click-to-create placeholder without re-rendering (keeps any dragged block attached).
@@ -521,7 +539,7 @@
   }
 
   el.weekGrid.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || drag) return;
+    if (e.button !== 0 || drag || e.target.closest(".echeck")) return;
     const evBlock = e.target.closest(".event:not(.draft)");
     const col = e.target.closest(".day-col");
     if (!col) return;
@@ -549,16 +567,41 @@
 
   el.weekGrid.addEventListener("pointermove", (e) => {
     if (!drag || drag.mode === "dismiss") return;
+    drag.px = e.clientX; drag.py = e.clientY;
     if (!drag.moved) {
       if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
       drag.moved = true;
       hidePopover();
       if (drag.block) drag.block.classList.add("dragging");
+      gridAutoScroll();
     }
-    const m = minuteAtY(e.clientY);
+    weekDragMove();
+  });
+
+  // Speed for scrolling the week grid when the pointer is near (or past) its top/bottom edge.
+  function edgeScrollSpeed(y) {
+    const r = el.weekBody.getBoundingClientRect();
+    const EDGE = 48;
+    if (y < r.top + EDGE) return -Math.min(20, Math.ceil((r.top + EDGE - y) / 3));
+    if (y > r.bottom - EDGE) return Math.min(20, Math.ceil((y - (r.bottom - EDGE)) / 3));
+    return 0;
+  }
+  function gridAutoScroll() {
+    if (!drag || !drag.moved || !["move", "resize", "create"].includes(drag.mode)) return;
+    const dy = edgeScrollSpeed(drag.py);
+    if (dy) {
+      const before = el.weekBody.scrollTop;
+      el.weekBody.scrollTop += dy;
+      if (el.weekBody.scrollTop !== before) weekDragMove(); // keep the block under the pointer
+    }
+    requestAnimationFrame(gridAutoScroll);
+  }
+
+  function weekDragMove() {
+    const m = minuteAtY(drag.py);
 
     if (drag.mode === "move") {
-      const dayIdx = colAtX(e.clientX);
+      const dayIdx = colAtX(drag.px);
       const durMin = drag.duration / 60000;
       const startMin = clamp(snap(m - drag.grab), 0, Math.max(0, 1440 - Math.min(durMin, 1440)));
       drag.newStart = atMinute(dayIdx, startMin);
@@ -585,7 +628,7 @@
       draft = { start: toISO(atMinute(drag.day, lo)), end: toISO(atMinute(drag.day, hi)) };
       renderGrid();
     }
-  });
+  }
 
   function endDrag(e, cancelled) {
     if (!drag) return;
@@ -669,8 +712,8 @@
         const task = tasks.find((x) => x.id === t.id);
         if (task && t.title.trim()) { task.title = t.title.trim(); changed.push(task); }
       } else if (t.type === "complete") {
-        const i = tasks.findIndex((x) => x.id === t.id);
-        if (i !== -1) { changed.push(tasks[i]); tasks.splice(i, 1); }
+        const task = tasks.find((x) => x.id === t.id);
+        if (task) { changed.push(task); setTaskDone(task.id, true, task.title); }
       }
     }
     saveEvents();
@@ -763,12 +806,17 @@
     c.className = "mchip" + (ev.allDay ? " allday" : "") + (flashIds.has(ev.id) ? " flash" : "");
     c.dataset.id = ev.id;
     c.dataset.date = dayKey(day);
+    if (ev.taskId) {
+      c.classList.add("is-task");
+      if (ev.done) c.classList.add("done");
+    }
     if (ev.allDay) {
       // Filled bar, like Google's all-day events.
       c.style.background = COLORS[ev.color] || COLORS.peacock;
       if (ev.color === "banana") c.style.color = "#202124";
       c.innerHTML = `<span class="mtitle"></span>`;
       c.querySelector(".mtitle").textContent = ev.title || "(No title)";
+      if (ev.taskId) c.prepend(checkboxEl(ev));
       return c;
     }
     c.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
@@ -776,6 +824,10 @@
     // A multi-day event shows its start time only on the first day.
     c.querySelector(".mtime").textContent = sameDay(s, day) ? fmtTime(s) : "";
     c.querySelector(".mtitle").textContent = ev.title || "(No title)";
+    if (ev.taskId) {
+      // Tasks show a checkbox (in the event colour) where other events show a dot.
+      c.querySelector(".mdot").replaceWith(checkboxEl(ev));
+    }
     return c;
   }
 
@@ -837,6 +889,7 @@
     const list = p.querySelector(".pday-list");
     eventsOnDay(day).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, day)));
     list.addEventListener("click", (e) => {
+      if (e.target.closest(".echeck")) return; // handled by the global checkbox handler
       const c = e.target.closest(".mchip");
       const ev = c && events.find((x) => x.id === c.dataset.id);
       if (ev) { e.stopPropagation(); showPopover(ev, anchor); }
@@ -852,7 +905,7 @@
   };
 
   el.monthGrid.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || drag) return;
+    if (e.button !== 0 || drag || e.target.closest(".echeck")) return;
     const cell = e.target.closest(".mcell");
     if (!cell) return;
     const chip = e.target.closest(".mchip:not(.draft)");
@@ -918,6 +971,43 @@
   }
   el.monthGrid.addEventListener("pointerup", (e) => endMonthDrag(e, false));
   el.monthGrid.addEventListener("pointercancel", (e) => endMonthDrag(e, true));
+
+  // ---------- tasks placed on the calendar ----------
+  // An event with a taskId came from a task. Checking it marks every event of that task done and
+  // takes the task off the list; unchecking puts the task back.
+  function checkboxEl(ev) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "echeck";
+    b.dataset.id = ev.id;
+    b.setAttribute("aria-label", ev.done ? "Mark as not completed" : "Mark completed");
+    b.title = ev.done ? "Mark as not completed" : "Mark completed";
+    b.innerHTML = CHECK_SVG;
+    b.style.setProperty("--c", COLORS[ev.color] || COLORS.peacock);
+    return b;
+  }
+  function setTaskDone(taskId, done, title) {
+    events.forEach((x) => { if (x.taskId === taskId) x.done = done; });
+    if (done) tasks = tasks.filter((t) => t.id !== taskId);
+    else if (!tasks.some((t) => t.id === taskId)) tasks.unshift({ id: taskId, title });
+  }
+  function toggleTaskEvent(id) {
+    const ev = events.find((x) => x.id === id);
+    if (!ev || !ev.taskId) return;
+    pushUndo();
+    const done = !ev.done;
+    setTaskDone(ev.taskId, done, ev.title);
+    saveEvents();
+    saveTasks();
+    const popoverOpenFor = !el.popover.hidden && el.popover.dataset.eventId === id;
+    render();
+    renderTasks();
+    if (popoverOpenFor) {
+      const anchor = document.querySelector(`[data-id="${id}"]:not(.echeck)`);
+      if (anchor) showPopover(ev, anchor); else hidePopover();
+    }
+    setStatus(`${done ? "Completed" : "Reopened"} “${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
 
   // ---------- task list (sidebar) ----------
   const CHECK_SVG = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
@@ -995,9 +1085,11 @@
     li.classList.add("done"); // show the check + strike-through briefly, like Google Tasks
     setTimeout(() => {
       pushUndo();
-      tasks = tasks.filter((t) => t.id !== id);
+      setTaskDone(id, true, task.title);
       saveTasks();
+      saveEvents();
       renderTasks();
+      if (events.some((x) => x.taskId === id)) render();
       setStatus(`Completed “${escapeHTML(task.title)}”. <button class="undo" type="button">Undo</button>`);
     }, 350);
   }
@@ -1083,10 +1175,9 @@
     if (!tdrag || !tdrag.moved) return;
     if (view === "week") {
       const r = el.weekBody.getBoundingClientRect();
-      const inX = tdrag.x > r.left && tdrag.x < r.right;
-      let dy = 0;
-      if (inX && tdrag.y > r.top - 10 && tdrag.y < r.top + 40) dy = -12;
-      else if (inX && tdrag.y > r.bottom - 40 && tdrag.y < r.bottom + 10) dy = 12;
+      // Only over the grid itself (not while passing over the header or sidebar).
+      const over = tdrag.x > r.left && tdrag.x < r.right && tdrag.y > r.top - 4 && tdrag.y < r.bottom + 40;
+      const dy = over ? edgeScrollSpeed(tdrag.y) : 0;
       if (dy) {
         el.weekBody.scrollTop += dy;
         updateTaskTarget();
@@ -1115,7 +1206,7 @@
     setTimeout(() => (suppressClick = false), 0);
     if (cancelled || !t.target) return;
 
-    const ev = { id: uid(), title: t.task.title, color: "peacock", location: "" };
+    const ev = { id: uid(), title: t.task.title, color: "peacock", location: "", taskId: t.task.id, done: false };
     if (t.target.allDay) Object.assign(ev, allDaySpan(t.target.date));
     else Object.assign(ev, { start: toISO(t.target.start), end: toISO(new Date(t.target.start.getTime() + 3600000)) });
     pushUndo();
@@ -1138,7 +1229,7 @@
   // ----- all-day events in the week header: click for details, drag to another day -----
   let hdrag = null;
   el.weekHead.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || drag || tdrag) return;
+    if (e.button !== 0 || drag || tdrag || e.target.closest(".echeck")) return;
     const chip = e.target.closest(".mchip");
     if (!chip) return;
     const ev = events.find((x) => x.id === chip.dataset.id);
@@ -1259,6 +1350,19 @@
   });
 
   document.addEventListener("click", (e) => {
+    const cb = e.target.closest(".echeck");
+    if (cb) {
+      e.stopPropagation();
+      const inDayList = cb.closest(".pday-list");
+      toggleTaskEvent(cb.dataset.id);
+      if (inDayList && !el.popover.hidden) {
+        // Refresh the "N more" list in place so the check shows up there too.
+        const c = cb.closest(".mchip");
+        const box = c && inDayList.querySelector(`.echeck[data-id="${cb.dataset.id}"]`);
+        if (box) box.closest(".mchip").classList.toggle("done");
+      }
+      return;
+    }
     if (!el.popover.contains(e.target)) hidePopover();
     if (!el.viewMenu.hidden && !el.viewMenu.contains(e.target)) {
       el.viewMenu.hidden = true;

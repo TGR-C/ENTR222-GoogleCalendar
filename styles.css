@@ -126,6 +126,29 @@ svg { fill: currentColor; display: block; }
 .mini-grid button.in-week { background: #e8f0fe; color: #1967d2; }
 .mini-grid button.today { background: var(--blue); color: #fff; }
 
+/* ---------- Tasks placed on the calendar ---------- */
+.echeck {
+  width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; padding: 0; margin: 0 4px 0 0;
+  display: inline-grid; place-items: center; vertical-align: -2px; flex-shrink: 0; cursor: pointer; color: inherit;
+}
+.echeck svg { width: 10px; height: 10px; fill: transparent; }
+.echeck:hover { box-shadow: 0 0 0 3px rgba(255,255,255,.35); }
+.done .echeck { background: currentColor; }
+.done .echeck svg { fill: var(--c); }
+/* timed chips in month view have dark text, so the box uses the event colour */
+.mchip:not(.allday) .echeck { border-color: var(--c); margin-right: 0; }
+.mchip:not(.allday) .echeck:hover { box-shadow: 0 0 0 3px rgba(60,64,67,.12); }
+.mchip.done:not(.allday) .echeck { background: var(--c); }
+.mchip.done:not(.allday) .echeck svg { fill: #fff; }
+.done .etitle, .done .mtitle, .popover .ptitle.done { text-decoration: line-through; }
+.event.done, .mchip.allday.done { opacity: .62; }
+.mchip.done:not(.allday) .mtitle, .mchip.done:not(.allday) .mtime { color: var(--text-2); }
+.popover .pdone {
+  margin-top: 10px; color: var(--blue); font: 500 14px "Google Sans", Roboto, sans-serif;
+  padding: 6px 12px; margin-left: -12px; border-radius: 4px;
+}
+.popover .pdone:hover { background: #e8f0fe; }
+
 /* ---------- Tasks ---------- */
 .tasks { margin-bottom: 16px; }
 .tasks-head {
