@@ -4462,13 +4462,14 @@
         { title: "Several sessions", target: ["#wkSwitch", "#wkSwitchMenu"], demo: ["tlEvents", "chat", "split", "sessions"], body: "Sessions run side by side — switch with this menu in the chat header. The trash icon deletes a chat, optionally with its files." },
       ] },
     ],
-    // First visit: the three modes, then the ? button.
+    // First visit: each mode is opened while it's introduced (lightly dimmed so it can be seen),
+    // then back to Calendar for the ? button.
     welcome: [
       { name: "Welcome", steps: [
-        { title: "Mode 1 of 3: Calendar", target: '.mode-tab[data-mode="calendar"]', body: "Your week and month. Add, move and change events by just typing what you want — the AI does the rest. Tasks and Whentomeet live here too." },
-        { title: "Mode 2 of 3: Action Timeline", target: '.mode-tab[data-mode="timeline"]', body: "What's happening now and what's next, on one line with countdowns. Click Work to get an AI's help with any event." },
-        { title: "Mode 3 of 3: Connection Hub", target: '.mode-tab[data-mode="hub"]', body: "Messages from Slack, email, Canvas and more in one place. Pick some and the AI turns them into events and tasks." },
-        { title: "Tour any mode", target: "#helpBtn", body: "Click ? whenever you like for a short tour of the mode you're in — it opens everything it explains for you." },
+        { title: "Mode 1 of 3: Calendar", target: '.mode-tab[data-mode="calendar"]', demo: ["modeCalendar"], light: true, body: "Your week and month. Add, move and change events by just typing what you want — the AI does the rest. Tasks and Whentomeet live here too." },
+        { title: "Mode 2 of 3: Action Timeline", target: '.mode-tab[data-mode="timeline"]', demo: ["modeTimeline", "tlEvents"], light: true, body: "What's happening now and what's next, on one line with countdowns. Click Work to get an AI's help with any event." },
+        { title: "Mode 3 of 3: Connection Hub", target: '.mode-tab[data-mode="hub"]', demo: ["modeHub"], light: true, body: "Messages from Slack, email, Canvas and more in one place. Pick some and the AI turns them into events and tasks." },
+        { title: "Tour any mode", target: "#helpBtn", demo: ["modeCalendar"], body: "Click ? whenever you like for a short tour of the mode you're in — it opens everything it explains for you." },
       ] },
     ],
     hub: [
@@ -4522,6 +4523,10 @@
   const inWeek = (ev) => { const s0 = parseISO(ev.start); return !ev.allDay && isVisible(ev) && s0 >= weekStart && s0 < addDays(weekStart, 7) && s0.getHours() >= 7 && s0.getHours() < 20; };
 
   const DEMOS = {
+    // Switch modes (the welcome); the mode the tour started in comes back when it closes.
+    modeCalendar() { if (mode !== "calendar") setMode("calendar"); return null; },
+    modeTimeline() { if (mode !== "timeline") setMode("timeline"); return null; },
+    modeHub() { if (mode !== "hub") setMode("hub"); return null; },
     sidebar() { if (!isMobile()) setSidebar(true); else setSidebar(true); return null; },
     week() {
       if (wtm.active && !tour.ui.meet) exitMeet();
@@ -4784,13 +4789,14 @@
   }
   // Where things were before the tour (view, date, sidebar…), put back when it closes.
   function saveTourUI() {
-    tour.ui = { view, focus: new Date(focus), sidebarOpen: !sidebarClosed(), scroll: el.weekBody.scrollTop, meet: !!wtm.active,
+    tour.ui = { mode, view, focus: new Date(focus), sidebarOpen: !sidebarClosed(), scroll: el.weekBody.scrollTop, meet: !!wtm.active,
       hubSide: hubEl.root.classList.contains("side-hidden") };
   }
   function restoreTourUI() {
     const u = tour.ui;
     if (!u) return;
     tour.ui = null;
+    if (mode !== u.mode) setMode(u.mode);
     if (mode === "hub") hubEl.root.classList.toggle("side-hidden", u.hubSide);
     if (mode !== "calendar" || wtm.active) return;
     if (view !== u.view) { view = u.view; saveViewPref(); }
@@ -4844,6 +4850,7 @@
   function showTourStep() {
     const sec = tour.set[tour.sec], st = sec.steps[tour.step];
     runDemos(st.demo || []);
+    tour.root.classList.toggle("light", !!st.light);
     tour.sections.innerHTML = "";
     // (The welcome has a single section: no chips to pick from.)
     if (tour.set.length > 1) tour.set.forEach((s, i) => {

@@ -1160,6 +1160,7 @@ input.hc-in[name="title"] { width: 100%; font-size: 14px; }
   box-shadow: 0 0 0 4px #8ab4f8, 0 0 0 9999px rgba(32,33,36,.5);
 }
 .tour-ring[hidden] { display: none; }
+.tour.light .tour-ring { box-shadow: 0 0 0 4px #8ab4f8, 0 0 0 9999px rgba(32,33,36,.15); }
 .tour-card {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); width: min(460px, calc(100vw - 24px));
   background: #fff; border-radius: 16px; padding: 14px 18px 14px;
