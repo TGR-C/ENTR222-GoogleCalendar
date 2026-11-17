@@ -65,14 +65,17 @@ Click the **Connection Hub** tab (top left). It uses made-up demo messages — n
 
 - **Sources** (left): All sources, Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe.
   With **All sources** (the default) the feed shows every message newest first, each tagged with its source;
-  click a source to see only its messages (click it again to go back to all). Messages show as cards, 12 per
-  page (‹ › to page, **«** back to page 1). Click cards to select them, or **Select all** to take every message
-  in the current view. ☰ hides the sources list.
+  click a source to see only its messages (click it again to go back to all). Messages are listed one block
+  per message, top to bottom, 12 per page (‹ › to page, **«** back to page 1). Click messages to select them,
+  or **Select all** to take every message in the current view. **Add a source** connects more apps (demo
+  only — they arrive empty); ☰ hides the sources list.
 - **Construct** (the big section on the right): choose **Build: Auto / Events / Tasks**, then either
   **✨ construct from the selected messages** or add events or tasks **by hand** (+ Event / + Task).
   Constructed items stack like calendar blocks (tasks like task rows); each can be edited (type, title,
   date/time, calendar, location), unticked, or removed. **Add … to calendar** places the ticked events on the
   calendar at their dates and times and puts tasks in the task list (undoable).
+- **Update events from Connection Hub** (big button at the bottom of the Calendar sidebar) runs the AI over
+  every message not yet checked and opens the hub with the results in Construct, ready to review and add.
 - Endpoint: `api/hub.js` (same model, `claude-haiku-5-5`); relative dates are read against each message's
   sent time, and things already on your calendar are skipped.
 

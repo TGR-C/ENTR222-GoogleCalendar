@@ -1860,7 +1860,7 @@
     hubEl.root.hidden = m !== "hub";
     if (m === "timeline") { if (wtm.active) exitMeet(); tl.auto = true; buildTimeline(); renderWork(); }
     else if (m === "hub") { if (wtm.active) exitMeet(); setExpanded(false); renderHub(); }
-    else { setExpanded(false); render(); }
+    else { setExpanded(false); render(); updateHubSync(); }
   }
   // One click switches mode; ← / → move between the tabs from the keyboard.
   modeEl.tabs.forEach((t, i) => {
@@ -3757,15 +3757,35 @@
       .sort((a, b) => b.at - a.at); // newest first
   }
   const msgById = (id) => hubMsgs[id.split("-")[0]]?.find((m) => m.id === id);
-  const srcById = (id) => HUB_SOURCES.find((s) => s.id === id);
+  // Apps that can be "connected" as extra sources (demo: they arrive with no messages).
+  const HUB_CATALOG = [
+    { id: "outlook", name: "Outlook", color: "#0f6cbd", glyph: "O" },
+    { id: "whatsapp", name: "WhatsApp", color: "#1fa855", glyph: "W" },
+    { id: "messenger", name: "Messenger", color: "#7b61ff", glyph: "M" },
+    { id: "classroom", name: "Google Classroom", color: "#1e8e3e", glyph: "GC" },
+    { id: "blackboard", name: "Blackboard", color: "#262626", glyph: "Bb" },
+    { id: "zoom", name: "Zoom Chat", color: "#2d8cff", glyph: "Z" },
+    { id: "notion", name: "Notion", color: "#37352f", glyph: "N" },
+    { id: "asana", name: "Asana", color: "#e8615a", glyph: "A" },
+    { id: "trello", name: "Trello", color: "#0c66e4", glyph: "Tr" },
+    { id: "linkedin", name: "LinkedIn", color: "#0a66c2", glyph: "in" },
+    { id: "instagram", name: "Instagram", color: "#c13584", glyph: "IG" },
+    { id: "telegram", name: "Telegram", color: "#229ed9", glyph: "Tg" },
+  ];
+  let hubExtra = [];
+  const allSources = () => [...HUB_SOURCES, ...hubExtra];
+  const srcById = (id) => allSources().find((s) => s.id === id);
   const hubSaved = loadJSON(HUB_KEY, {});
+  hubExtra = (Array.isArray(hubSaved.extra) ? hubSaved.extra : []).map((id) => HUB_CATALOG.find((c) => c.id === id)).filter(Boolean);
+  for (const src of hubExtra) hubMsgs[src.id] = [];
   const hub = {
     view: srcById(hubSaved.view || "") ? hubSaved.view : null, // null = all sources
     items: Array.isArray(hubSaved.items) ? hubSaved.items : [],
     build: ["auto", "events", "tasks"].includes(hubSaved.build) ? hubSaved.build : "auto",
     pages: {}, selected: new Set(), busy: false, editing: null, undoable: false,
+    seen: new Set(Array.isArray(hubSaved.seen) ? hubSaved.seen : []), // messages already checked by "Update events"
   };
-  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ view: hub.view, items: hub.items, build: hub.build })); } catch { /* ignore */ } };
+  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ view: hub.view, items: hub.items, build: hub.build, extra: hubExtra.map((x) => x.id), seen: [...hub.seen] })); } catch { /* ignore */ } };
   const ALL_MSGS = Object.values(hubMsgs).flat().sort((a, b) => b.at - a.at);
   const viewMsgs = () => (hub.view ? hubMsgs[hub.view] : ALL_MSGS);
   const hubEl = {
@@ -3812,7 +3832,27 @@
       hubEl.sources.appendChild(li);
     };
     tab(null, "All sources", "∗", "#5f6368", ALL_MSGS.length);
-    for (const src of HUB_SOURCES) tab(src.id, src.name, src.glyph, src.color, hubMsgs[src.id].length);
+    for (const src of allSources()) tab(src.id, src.name, src.glyph, src.color, hubMsgs[src.id].length);
+    // Added (demo) sources can be removed again.
+    hubEl.sources.querySelectorAll("li").forEach((li, i) => {
+      const src = allSources()[i - 1];
+      if (!src || !hubExtra.includes(src)) return;
+      const x = document.createElement("button");
+      x.type = "button";
+      x.className = "hub-src-x";
+      x.setAttribute("aria-label", `Remove ${src.name}`);
+      x.title = "Remove this source";
+      x.textContent = "×";
+      x.addEventListener("click", (e) => {
+        e.stopPropagation();
+        hubExtra = hubExtra.filter((y) => y !== src);
+        delete hubMsgs[src.id];
+        if (hub.view === src.id) hub.view = null;
+        saveHub();
+        renderHub();
+      });
+      li.appendChild(x);
+    });
   }
 
   // The feed: the chosen source (or everything), newest first, as a grid of cards.
@@ -3856,6 +3896,7 @@
     });
     const grid = box.querySelector(".hub-grid");
     for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) grid.appendChild(hubMsgEl(m, !hub.view));
+    if (!msgs.length) grid.innerHTML = `<div class="hub-feed-empty">No messages from ${escapeHTML(src ? src.name : "your sources")} yet.<br><small>This is a demo connection.</small></div>`;
     box.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
     const go = (p) => { hub.pages[key] = p; renderHubCols(); grid.scrollTop = 0; };
     box.querySelector('[data-p="first"]').disabled = page === 0;
@@ -4049,7 +4090,8 @@
 
   // AI: read the chosen messages and propose events/tasks.
   async function hubConstruct(msgs, label) {
-    if (!msgs.length || hub.busy) return;
+    if (!msgs.length || hub.busy) return false;
+    let ok = false;
     hub.busy = true;
     renderConstructTools();
     hubStatus(`<span class="spinner"></span>Reading ${msgs.length} message${msgs.length === 1 ? "" : "s"} from ${escapeHTML(label)}…`);
@@ -4085,12 +4127,14 @@
       saveHub();
       const reply = data.reply ? escapeHTML(data.reply) : "";
       hubStatus(made.length ? `${reply || "Done."} <b>${made.length} new</b> below.` : (reply || "Nothing to schedule in those messages."));
+      ok = true;
     } catch (err) {
       hubStatus(escapeHTML(err.message || "Something went wrong."), true);
     } finally {
       hub.busy = false;
       renderConstruct();
     }
+    return ok;
   }
 
   // Put the kept items into the calendar (events) and task list (tasks).
@@ -4117,6 +4161,62 @@
     const parts = [nE && `${nE} event${nE === 1 ? "" : "s"} to your calendar`, nT && `${nT} task${nT === 1 ? "" : "s"} to your task list`].filter(Boolean);
     hubStatus(`Added ${parts.join(" and ")}. <button type="button" class="hc-link" data-undo>Undo</button>`);
   }
+
+  // ----- add a source (demo) -----
+  const hubDlg = { root: $("hubDlg"), grid: $("hubDlgGrid"), close: $("hubDlgClose") };
+  function openAddSource() {
+    hubDlg.grid.innerHTML = "";
+    for (const app of HUB_CATALOG) {
+      const added = hubExtra.some((x) => x.id === app.id);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "hub-app" + (added ? " added" : "");
+      b.innerHTML = `<span class="hub-glyph"></span><span class="hub-app-name"></span><span class="hub-app-state"></span>`;
+      b.querySelector(".hub-glyph").textContent = app.glyph;
+      b.querySelector(".hub-glyph").style.background = app.color;
+      b.querySelector(".hub-app-name").textContent = app.name;
+      b.querySelector(".hub-app-state").textContent = added ? "Added ✓" : "Add";
+      b.disabled = added;
+      b.addEventListener("click", () => {
+        hubExtra.push(app);
+        hubMsgs[app.id] = [];
+        saveHub();
+        renderHubSources();
+        openAddSource();
+      });
+      hubDlg.grid.appendChild(b);
+    }
+    hubDlg.root.hidden = false;
+    hubDlg.root.querySelector(".hub-dlg-card").focus();
+  }
+  const closeAddSource = () => { hubDlg.root.hidden = true; };
+  $("hubAddSrc").addEventListener("click", openAddSource);
+  hubDlg.close.addEventListener("click", closeAddSource);
+  hubDlg.root.addEventListener("click", (e) => { if (e.target === hubDlg.root) closeAddSource(); });
+  hubDlg.root.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); closeAddSource(); } });
+
+  // ----- "Update events from Connection Hub" (calendar sidebar) -----
+  const newHubMsgs = () => Object.values(hubMsgs).flat().filter((m) => !hub.seen.has(m.id)).sort((a, b) => b.at - a.at);
+  function updateHubSync() {
+    const n = newHubMsgs().length;
+    $("hubSyncSub").textContent = n ? `${n} new message${n === 1 ? "" : "s"} to check` : "Up to date — no new messages";
+    $("hubSync").classList.toggle("has-new", n > 0);
+  }
+  $("hubSync").addEventListener("click", async () => {
+    const fresh = newHubMsgs();
+    setMode("hub");
+    hub.view = null;
+    saveHub();
+    renderHub();
+    if (!fresh.length) { hubStatus("No new messages since your last update."); return; }
+    // The AI's suggestions land in Construct for review; nothing is added without "Add to calendar".
+    const ok = await hubConstruct(fresh, `${fresh.length} new message${fresh.length === 1 ? "" : "s"}`);
+    if (ok) {
+      fresh.forEach((m) => hub.seen.add(m.id));
+      saveHub();
+      updateHubSync();
+    }
+  });
 
   hubEl.build.querySelectorAll("[data-build]").forEach((b) => b.addEventListener("click", () => { hub.build = b.dataset.build; saveHub(); renderConstructTools(); }));
   hubEl.fromSel.addEventListener("click", () => {
