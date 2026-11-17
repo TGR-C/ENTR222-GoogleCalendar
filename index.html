@@ -89,12 +89,15 @@
         <div class="task-tip">Drag a task onto the calendar to schedule it.</div>
       </section>
 
-      <div class="my-cals">
-        <div class="my-cals-head">My calendars</div>
-        <label class="cal-item"><span class="check" style="--c:#039be5"></span>Personal</label>
-        <label class="cal-item"><span class="check" style="--c:#33b679"></span>Tasks</label>
-        <label class="cal-item"><span class="check" style="--c:#8e24aa"></span>Birthdays</label>
-      </div>
+      <section class="my-cals" aria-label="My calendars">
+        <div class="my-cals-head">
+          <span>My calendars</span>
+          <button class="icon-btn small" id="calAdd" aria-label="Create a calendar" title="Create a calendar">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+        </div>
+        <ul class="cal-list" id="calList"></ul>
+      </section>
     </aside>
 
     <main class="main" id="main" data-view="week">

@@ -27,6 +27,10 @@ You can also work with the grid directly:
 - Dragging an event near the top/bottom edge of the week grid scrolls it.
 - **All-day events** appear under the day headers (week) and as filled bars (month); they can be
   dragged to another day and created by the AI ("holiday on Friday").
+- **My calendars** (tags): every event belongs to a calendar and takes its colour. Tick a calendar to
+  show/hide its events, `+` creates one (name + colour), the pencil on hover renames/recolours/deletes.
+  In an event's popup, click the colour square (or the calendar name) to move it to another calendar.
+  The AI box can do all of this too ("make a Health tag in green and put the gym in it", "hide Classes").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
 
 Keyboard shortcuts (ignored while typing in a text box):

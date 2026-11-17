@@ -25,11 +25,11 @@ const SCHEMA = {
           title: { type: "string" },
           start: { type: "string" },
           end: { type: "string" },
-          color: { type: "string", enum: COLORS },
+          calendar: { type: "string" },
           location: { type: "string" },
           all_day: { type: "boolean" },
         },
-        required: ["type", "id", "title", "start", "end", "color", "location", "all_day"],
+        required: ["type", "id", "title", "start", "end", "calendar", "location", "all_day"],
         additionalProperties: false,
       },
     },
@@ -46,18 +46,34 @@ const SCHEMA = {
         additionalProperties: false,
       },
     },
+    calendar_actions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["create", "update", "delete"] },
+          id: { type: "string" },
+          name: { type: "string" },
+          color: { type: "string", enum: COLORS },
+          visible: { type: "boolean" },
+        },
+        required: ["type", "id", "name", "color", "visible"],
+        additionalProperties: false,
+      },
+    },
     reply: { type: "string" },
   },
-  required: ["actions", "task_actions", "reply"],
+  required: ["actions", "task_actions", "calendar_actions", "reply"],
   additionalProperties: false,
 };
 
-const SYSTEM = `You are the scheduling engine of a calendar app. Turn the user's request into actions on their calendar events ("actions") and on their to-do list ("task_actions").
+const SYSTEM = `You are the scheduling engine of a calendar app. Turn the user's request into actions on their calendar events ("actions"), their to-do list ("task_actions"), and their calendars/tags ("calendar_actions").
 
 Rules:
 - All times are the user's local time, formatted exactly "YYYY-MM-DDTHH:MM" (24h).
 - Resolve relative dates ("tomorrow", "next Tuesday", "this Friday") against the "now" value given. A bare weekday means the next upcoming one (today counts if the time has not passed).
-- Default duration is 1 hour when none is given. Default color is "peacock" unless the user asks for one or an existing event is being kept.
+- Default duration is 1 hour when none is given.
+- Every event belongs to one calendar (a tag) from "calendars"; the event's color is its calendar's color. Set "calendar" to the calendar's exact name. For a new event pick the calendar that fits best (e.g. a class goes in a class/school calendar, a workout in a fitness one); if none fits, use "Personal" if it exists, else the first calendar. When updating, keep the event's current calendar unless the user asks to change it.
 - create: set id to "".
 - update: use the existing event's id and give the full final values (copy unchanged fields from the existing event).
 - delete: use the existing event's id and copy its other fields.
@@ -70,7 +86,14 @@ To-do list ("tasks" in the context; each task has only an id and a title, no tim
 - task update: rename an existing task (use its id).
 - task complete: the user finished it or wants it off the list ("done with X", "check off X", "remove X from my tasks").
 - Events with is_task true are tasks the user placed on the calendar; done tells whether they were checked off. Treat them like other events for moving, renaming, or deleting.
-- Something with a specific day or time is a calendar event, not a task. If the user asks to schedule an existing task, create an event with the task's title and leave the task alone unless they say it is done.
+- Something with a specific day or time is a calendar event, not a task.
+
+Calendars / tags ("calendars" in the context; each has id, name, color, visible):
+- calendar create (id ""): a new tag/calendar with a name and one of the allowed colors (pick a fitting unused one if the user gives none). New calendars are visible.
+- calendar update (existing id): rename, recolor, show or hide (visible). Copy unchanged fields.
+- calendar delete (existing id): only when the user explicitly asks; this also deletes the calendar's events.
+- "Change an event's color" means moving it to a calendar with that color. If no calendar has that color, ask which calendar to use, unless the user asked to make a new tag.
+- An event can be put in a calendar created in the same response by using the new calendar's name. If the user asks to schedule an existing task, create an event with the task's title and leave the task alone unless they say it is done.
 - If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration.
 - If "selected_event_id" is present, the user opened that event and is describing a change to it: "it", "this", or a bare instruction ("move to 3pm", "make it longer", "delete") refers to that event. Only touch other events if the request clearly names them.
 - If the request is ambiguous (e.g. several events match and you can't tell which) or is not about the calendar, return no actions and ask a short question in reply.
@@ -84,13 +107,18 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { command, events = [], tasks = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
+  const { command, events = [], tasks = [], calendars = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
   if (typeof command !== "string" || !command.trim()) {
     return res.status(400).json({ error: "Missing command" });
   }
   if (command.length > 1000) {
     return res.status(400).json({ error: "Command too long" });
   }
+
+  const calList = (Array.isArray(calendars) ? calendars : []).map(({ id, name, color, visible }) => ({
+    id, name, color, visible: visible !== false,
+  }));
+  const calName = new Map(calList.map((c) => [c.id, c.name]));
 
   const context = {
     now,
@@ -101,8 +129,9 @@ export default async function handler(req, res) {
     ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
       ? { selected_event_id: eventId }
       : {}),
-    events: events.map(({ id, title, start, end, color, location, allDay, taskId, done }) => ({
-      id, title, start, end, color, location: location || "", all_day: !!allDay,
+    calendars: calList,
+    events: events.map(({ id, title, start, end, cal, location, allDay, taskId, done }) => ({
+      id, title, start, end, calendar: calName.get(cal) || "", location: location || "", all_day: !!allDay,
       ...(taskId ? { is_task: true, done: !!done } : {}),
     })),
     tasks: (Array.isArray(tasks) ? tasks : []).map(({ id, title }) => ({ id, title })),
@@ -126,7 +155,7 @@ export default async function handler(req, res) {
     });
 
     if (response.stop_reason === "refusal") {
-      return res.status(200).json({ actions: [], task_actions: [], reply: "Sorry, I can't help with that request." });
+      return res.status(200).json({ actions: [], task_actions: [], calendar_actions: [], reply: "Sorry, I can't help with that request." });
     }
     if (response.stop_reason === "max_tokens") {
       return res.status(502).json({ error: "The model response was cut off. Try a simpler request." });
@@ -147,7 +176,13 @@ export default async function handler(req, res) {
     const taskActions = (parsed.task_actions || []).filter((t) =>
       t.type === "create" ? !!t.title?.trim() : knownTasks.has(t.id));
 
-    return res.status(200).json({ actions, task_actions: taskActions, reply: parsed.reply || "Done." });
+    const knownCals = new Set(calList.map((c) => c.id));
+    const calendarActions = (parsed.calendar_actions || []).filter((c) =>
+      c.type === "create" ? !!c.name?.trim() : knownCals.has(c.id));
+
+    return res.status(200).json({
+      actions, task_actions: taskActions, calendar_actions: calendarActions, reply: parsed.reply || "Done.",
+    });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
       return res.status(500).json({ error: "Server API key is missing or invalid." });

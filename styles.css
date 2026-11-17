@@ -207,20 +207,74 @@ body.task-dragging .allday-zone.zone-hot::after {
   border-color: var(--blue); border-style: solid; background: rgba(26,115,232,.2);
 }
 .event.preview {
-  background: rgba(3,155,229,.85) !important; border: 2px dashed #fff; pointer-events: none; z-index: 15;
+  background: var(--pc, #039be5) !important; opacity: .88; border: 2px dashed #fff; pointer-events: none; z-index: 15;
   box-shadow: 0 2px 6px rgba(0,0,0,.25);
 }
 
-.my-cals-head { font: 500 14px "Google Sans", Roboto, sans-serif; padding: 8px; }
-.cal-item { display: flex; align-items: center; gap: 12px; padding: 6px 8px; font-size: 14px; border-radius: 4px; }
+.my-cals-head {
+  display: flex; justify-content: space-between; align-items: center; padding-left: 8px;
+  font: 500 14px "Google Sans", Roboto, sans-serif;
+}
+.cal-list { list-style: none; margin: 2px 0 0; padding: 0; }
+.cal-item {
+  display: flex; align-items: center; gap: 12px; padding: 0 0 0 8px; height: 32px; font-size: 14px;
+  border-radius: 4px; cursor: pointer; user-select: none; -webkit-user-select: none;
+}
 .cal-item:hover { background: var(--hover); }
+.cal-item .cal-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-item .cal-edit { color: #5f6368; opacity: 0; width: 28px; height: 28px; }
+.cal-item:hover .cal-edit, .cal-item .cal-edit:focus-visible { opacity: 1; }
 .check {
-  width: 18px; height: 18px; border-radius: 2px; background: var(--c); position: relative;
+  width: 18px; height: 18px; border-radius: 2px; flex-shrink: 0; padding: 0; display: grid; place-items: center;
+  background: var(--c); border: 2px solid var(--c); color: #fff;
 }
-.check::after {
-  content: ""; position: absolute; left: 6px; top: 2px; width: 4px; height: 9px;
-  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+.check svg { fill: currentColor; }
+.cal-item.off .check { background: transparent; color: transparent; }
+.cal-item.off .cal-name { color: var(--text-2); }
+
+/* calendar picker in the event popover */
+.popover .swatch-btn { padding: 0; cursor: pointer; border: 0; }
+.popover .swatch-btn:hover { box-shadow: 0 0 0 3px rgba(60,64,67,.15); }
+.popover .pcal-row { margin-top: 10px; }
+.popover .pcal { font-size: 14px; line-height: 20px; color: var(--text); padding: 0; text-align: left; }
+.popover .pcal:hover { text-decoration: underline; }
+.cal-menu {
+  position: absolute; z-index: 5; background: #fff; border-radius: 4px; padding: 6px 0; min-width: 200px;
+  box-shadow: 0 2px 2px 0 rgba(0,0,0,.14), 0 3px 1px -2px rgba(0,0,0,.12), 0 1px 5px 0 rgba(0,0,0,.2);
+  max-height: min(60vh, 420px); overflow-y: auto;
 }
+.cal-menu button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 0 16px; height: 36px; font-size: 14px; text-align: left; }
+.cal-menu button:hover { background: var(--hover); }
+.cal-menu .cm-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+.cal-menu .cm-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-menu .cm-check { width: 14px; color: var(--blue); }
+.cal-menu .cm-check svg { fill: currentColor; }
+.cal-menu .cm-new { color: var(--blue); font-weight: 500; border-top: 1px solid var(--line); margin-top: 4px; }
+
+/* create / edit calendar */
+.cal-editor { display: flex; flex-direction: column; gap: 14px; margin-top: -16px; }
+.ce-title { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; }
+.ce-name {
+  font: 400 16px Roboto, sans-serif; color: var(--text); border: 0; border-bottom: 1px solid var(--line);
+  padding: 6px 0; outline: 0; background: transparent;
+}
+.ce-name:focus { border-bottom: 2px solid var(--blue); padding-bottom: 5px; }
+.ce-swatches { display: grid; grid-template-columns: repeat(6, 28px); gap: 10px; }
+.ce-swatches button { width: 28px; height: 28px; border-radius: 50%; padding: 0; display: grid; place-items: center; color: transparent; }
+.ce-swatches button svg { fill: currentColor; }
+.ce-swatches button:hover { box-shadow: 0 0 0 3px rgba(60,64,67,.15); }
+.ce-swatches button.sel { color: #fff; }
+.ce-error { font-size: 12px; color: #d93025; min-height: 0; }
+.ce-error:empty { display: none; }
+.ce-actions { display: flex; align-items: center; gap: 8px; }
+.ce-spacer { flex: 1; }
+.ce-actions button { height: 36px; padding: 0 16px; border-radius: 4px; font: 500 14px "Google Sans", Roboto, sans-serif; }
+.ce-cancel { color: var(--text); }
+.ce-cancel:hover, .ce-delete:hover { background: var(--hover); }
+.ce-save { background: var(--blue); color: #fff; }
+.ce-save:hover { background: #1765cc; }
+.ce-delete { color: #d93025; margin-left: -16px; }
+.ce-delete.armed { background: #fce8e6; }
 
 /* ---------- Week view ---------- */
 .week-head {

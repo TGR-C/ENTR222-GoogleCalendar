@@ -23,6 +23,24 @@
     main: $("main"), monthHead: $("monthHead"), monthGrid: $("monthGrid"),
     viewBtn: $("viewBtn"), viewMenu: $("viewMenu"), viewLabel: $("viewLabel"),
     taskList: $("taskList"), taskAdd: $("taskAdd"), taskEmpty: $("taskEmpty"),
+    calList: $("calList"), calAdd: $("calAdd"),
+  };
+  const CAL_KEY = "nl-calendar-cals-v1";
+  // Starter calendars (tags). Fixed ids so sample events and older saved data can be mapped onto them.
+  const DEFAULT_CALENDARS = [
+    { id: "cal-startup", name: "Startup project", color: "peacock", visible: true },
+    { id: "cal-classes", name: "Classes", color: "grape", visible: true },
+    { id: "cal-personal", name: "Personal", color: "flamingo", visible: true },
+    { id: "cal-fitness", name: "Fitness", color: "basil", visible: true },
+    { id: "cal-tasks", name: "Tasks", color: "blueberry", visible: true },
+  ];
+  // Which starter calendar each sample event belongs to (also used to migrate older saves).
+  const SAMPLE_CAL = {
+    "Team standup": "cal-startup", "Project sync": "cal-startup", "Customer interview": "cal-startup",
+    "Pitch practice": "cal-startup", "Pitch deck due": "cal-startup",
+    "ENTR 222 lecture": "cal-classes", "Office hours": "cal-classes",
+    "Lunch with Alex": "cal-personal", "Dinner": "cal-personal",
+    "Gym": "cal-fitness", "Hike": "cal-fitness",
   };
   const TASK_KEY = "nl-calendar-tasks-v1";
   const VIEW_KEY = "nl-calendar-view";
@@ -55,7 +73,9 @@
   const uid = () => Math.random().toString(36).slice(2, 10);
 
   // ---------- state ----------
+  let calendars = loadCalendars();
   let events = loadEvents();
+  migrateEvents();
   let tasks = loadTasks();          // [{id, title}] — the sidebar to-do list
   let view = loadView();           // "week" | "month"
   let focus = startOfDay(new Date()); // the date being looked at
@@ -78,6 +98,47 @@
     try { localStorage.setItem(STORE_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
     return seeded;
   }
+  function loadCalendars() {
+    try {
+      const raw = localStorage.getItem(CAL_KEY);
+      if (raw) { const c = JSON.parse(raw); if (Array.isArray(c) && c.length) return c; }
+    } catch { /* ignore */ }
+    const seeded = DEFAULT_CALENDARS.map((c) => ({ ...c }));
+    try { localStorage.setItem(CAL_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
+    return seeded;
+  }
+  function saveCalendars() {
+    try { localStorage.setItem(CAL_KEY, JSON.stringify(calendars)); } catch { /* ignore */ }
+  }
+  // (function declarations, not consts: migrateEvents() uses them while state is being set up)
+  function calById(id) { return calendars.find((c) => c.id === id); }
+  function calByName(name) {
+    const n = String(name || "").trim().toLowerCase();
+    return n ? calendars.find((c) => c.name.toLowerCase() === n || c.id === name) : undefined;
+  }
+  // New events go to "Personal" if it exists, else the first calendar.
+  function defaultCalId() { return (calById("cal-personal") || calendars[0]).id; }
+  function tasksCalId() { return (calById("cal-tasks") || calById(defaultCalId())).id; }
+  function calOf(ev) { return calById(ev.cal) || calById(defaultCalId()); }
+  function colorNameOf(ev) { return (calOf(ev) || {}).color || "peacock"; }
+  function colorOf(ev) { return COLORS[colorNameOf(ev)] || COLORS.peacock; }
+  function isVisible(ev) { return (calOf(ev) || {}).visible !== false; }
+
+  // Older saves stored a colour on each event; give every event a calendar instead.
+  function migrateEvents() {
+    let changed = false;
+    for (const ev of events) {
+      if (ev.cal && calById(ev.cal)) continue;
+      ev.cal = (SAMPLE_CAL[ev.title] && calById(SAMPLE_CAL[ev.title]) && SAMPLE_CAL[ev.title])
+        || (ev.taskId && tasksCalId())
+        || (calendars.find((c) => c.color === ev.color) || {}).id
+        || defaultCalId();
+      delete ev.color;
+      changed = true;
+    }
+    if (changed) saveEvents();
+  }
+
   function loadTasks() {
     try {
       const raw = localStorage.getItem(TASK_KEY);
@@ -105,21 +166,21 @@
   function seedEvents() {
     const ws = startOfWeek(new Date());
     const at = (day, h, m = 0) => toISO(new Date(ws.getFullYear(), ws.getMonth(), ws.getDate() + day, h, m));
-    const mk = (title, day, sh, sm, eh, em, color, location = "") =>
-      ({ id: uid(), title, start: at(day, sh, sm), end: at(day, eh, em), color, location });
+    const mk = (title, day, sh, sm, eh, em, location = "") =>
+      ({ id: uid(), title, start: at(day, sh, sm), end: at(day, eh, em), cal: SAMPLE_CAL[title], location });
     return [
-      mk("Team standup", 1, 9, 30, 10, 0, "peacock", "Zoom"),
-      mk("ENTR 222 lecture", 1, 13, 0, 14, 30, "grape", "Room 104"),
-      mk("Gym", 2, 7, 0, 8, 0, "sage"),
-      mk("Project sync", 2, 11, 0, 12, 0, "peacock"),
-      mk("Lunch with Alex", 3, 12, 0, 13, 0, "tangerine", "Campus café"),
-      mk("ENTR 222 lecture", 3, 13, 0, 14, 30, "grape", "Room 104"),
-      mk("Customer interview", 3, 13, 30, 14, 15, "tomato"),
-      mk("Office hours", 4, 15, 0, 16, 30, "lavender"),
-      mk("Pitch practice", 5, 10, 0, 11, 30, "banana"),
-      mk("Dinner", 5, 19, 0, 20, 30, "flamingo"),
-      mk("Hike", 6, 9, 0, 12, 0, "basil", "Trailhead"),
-      { id: uid(), title: "Pitch deck due", ...allDaySpan(addDays(ws, 5)), color: "tomato", location: "" },
+      mk("Team standup", 1, 9, 30, 10, 0, "Zoom"),
+      mk("ENTR 222 lecture", 1, 13, 0, 14, 30, "Room 104"),
+      mk("Gym", 2, 7, 0, 8, 0, "Campus rec center"),
+      mk("Project sync", 2, 11, 0, 12, 0),
+      mk("Lunch with Alex", 3, 12, 0, 13, 0, "Campus café"),
+      mk("ENTR 222 lecture", 3, 13, 0, 14, 30, "Room 104"),
+      mk("Customer interview", 3, 13, 30, 14, 15, "Zoom"),
+      mk("Office hours", 4, 15, 0, 16, 30),
+      mk("Pitch practice", 5, 10, 0, 11, 30),
+      mk("Dinner", 5, 19, 0, 20, 30),
+      mk("Hike", 6, 9, 0, 12, 0, "Trailhead"),
+      { id: uid(), title: "Pitch deck due", ...allDaySpan(addDays(ws, 5)), cal: "cal-startup", location: "" },
     ];
   }
 
@@ -192,7 +253,7 @@
 
       const dayStart = startOfDay(day), dayEnd = addDays(dayStart, 1);
       const items = events
-        .filter((ev) => !ev.allDay)
+        .filter((ev) => !ev.allDay && isVisible(ev))
         .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
         .filter(({ s, e }) => s < dayEnd && e > dayStart)
         .map((it) => ({
@@ -254,8 +315,8 @@
     div.style.left = `calc(${col * w}% + 1px)`;
     div.style.width = `calc(${col === cols - 1 ? w : w * 1.6}% - 10px)`;
     div.style.zIndex = 1 + col;
-    div.style.background = COLORS[ev.color] || COLORS.peacock;
-    if (ev.color === "banana") div.style.color = "#202124";
+    div.style.background = colorOf(ev);
+    if (colorNameOf(ev) === "banana") div.style.color = "#202124";
     div.innerHTML = `<div class="etitle"></div><div class="etime"></div>`;
     div.querySelector(".etitle").textContent = ev.title || "(No title)";
     div.querySelector(".etime").textContent = fmtRange(s, e) + (ev.location && mins >= 60 ? `, ${ev.location}` : "");
@@ -285,7 +346,7 @@
     div.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
     div.style.left = "1px";
     div.style.width = "calc(100% - 10px)";
-    div.style.background = COLORS.peacock;
+    div.style.background = COLORS[calById(defaultCalId()).color] || COLORS.peacock;
     div.innerHTML = `<div class="etitle">(No title)</div><div class="etime"></div>`;
     div.querySelector(".etime").textContent = fmtRange(s, e);
     return div;
@@ -370,11 +431,11 @@
   // Send a request from a popover; close it and apply the result if anything changed.
   async function popoverRequest(text, ctx) {
     const data = await callSchedule(text, ctx);
-    const actions = data.actions || [], taskActions = data.task_actions || [];
-    if (!actions.length && !taskActions.length) return data.reply || "I couldn’t work out a change — try rephrasing.";
+    const actions = data.actions || [], taskActions = data.task_actions || [], calActions = data.calendar_actions || [];
+    if (!actions.length && !taskActions.length && !calActions.length) return data.reply || "I couldn’t work out a change — try rephrasing.";
     el.popover.hidden = true;
     if (draft) { draft.busy = false; draft = null; }
-    const changed = applyActions(actions, taskActions);
+    const changed = applyActions(actions, taskActions, calActions);
     setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
     return null;
   }
@@ -386,10 +447,16 @@
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
     p.innerHTML = `${CLOSE_BTN}
-      <div class="prow"><div class="picon"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div></div>
+      <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" style="background:${colorOf(ev)}" aria-label="Change calendar" title="Change calendar"></button></div>
         <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div></div></div>
       <div class="prow ploc-row"><div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></div>
-        <div class="pinfo"><div class="ploc"></div></div></div>`;
+        <div class="pinfo"><div class="ploc"></div></div></div>
+      <div class="prow pcal-row"><div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg></div>
+        <div class="pinfo"><button type="button" class="pcal" title="Change calendar"></button></div></div>`;
+    p.querySelector(".pcal").textContent = (calOf(ev) || {}).name || "";
+    // The colour square and the calendar name both open the calendar picker.
+    p.querySelector(".swatch-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev, e.currentTarget); });
+    p.querySelector(".pcal").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev, e.currentTarget); });
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     const days = Math.round((startOfDay(e) - startOfDay(s)) / 86400000);
     p.querySelector(".pwhen").textContent = !ev.allDay ? `${dayStr} · ${fmtRange(s, e)}`
@@ -428,7 +495,7 @@
       row.className = "prow";
       row.innerHTML = `<div class="picon"></div><div class="pinfo"></div>`;
       row.querySelector(".pinfo").appendChild(b);
-      p.querySelector(".ploc-row").after(row);
+      p.querySelector(".pcal-row").after(row);
     }
 
     const bar = aiBar({
@@ -507,6 +574,7 @@
         command,
         events,
         tasks,
+        calendars,
         slot,
         eventId,
         now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
@@ -526,7 +594,7 @@
     setStatus(`<span class="spinner"></span>Working on it…`);
     try {
       const data = await callSchedule(command);
-      const changed = applyActions(data.actions || [], data.task_actions || []);
+      const changed = applyActions(data.actions || [], data.task_actions || [], data.calendar_actions || []);
       el.aiInput.value = "";
       autosize();
       setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
@@ -698,12 +766,40 @@
     if (suppressClick) { suppressClick = false; e.stopPropagation(); }
   }, true);
 
-  function applyActions(actions, taskActions = []) {
-    if (!actions.length && !taskActions.length) return [];
+  function applyActions(actions, taskActions = [], calActions = []) {
+    if (!actions.length && !taskActions.length && !calActions.length) return [];
     pushUndo();
     const changed = [];
+    // Calendars first, so events in this same reply can refer to a newly created calendar by name.
+    for (const c of calActions) {
+      const color = COLORS[c.color] ? c.color : "peacock";
+      if (c.type === "create") {
+        const name = c.name.trim();
+        if (!name || calByName(name)) continue;
+        const cal = { id: "cal-" + uid(), name, color, visible: true };
+        calendars.push(cal);
+        changed.push(cal);
+      } else if (c.type === "update") {
+        const cal = calById(c.id);
+        if (!cal) continue;
+        const name = c.name.trim();
+        if (name && !(calByName(name) && calByName(name) !== cal)) cal.name = name;
+        cal.color = color;
+        cal.visible = c.visible !== false;
+        changed.push(cal);
+      } else if (c.type === "delete" && calendars.length > 1) {
+        const cal = calById(c.id);
+        if (!cal) continue;
+        calendars = calendars.filter((x) => x !== cal);
+        events = events.filter((ev) => ev.cal !== cal.id);
+        changed.push(cal);
+      }
+    }
     for (const a of actions) {
-      const fields = { title: a.title, start: a.start, end: a.end, color: a.color, location: a.location || "", allDay: !!a.all_day };
+      const target = calByName(a.calendar);
+      const fields = { title: a.title, start: a.start, end: a.end, location: a.location || "", allDay: !!a.all_day };
+      if (target) fields.cal = target.id;
+      else if (a.type === "create") fields.cal = defaultCalId();
       if (fields.allDay && fields.start) {
         // Normalise to whole days: midnight → midnight after the last day.
         const s0 = startOfDay(parseISO(fields.start));
@@ -740,8 +836,10 @@
         if (task) { changed.push(task); setTaskDone(task.id, true, task.title); }
       }
     }
+    saveCalendars();
     saveEvents();
     saveTasks();
+    renderCalendars();
     renderTasks(new Set(taskActions.filter((t) => t.type !== "complete").map((t) => t.id)));
 
     // Jump to the week of the first created/updated event if it's not visible.
@@ -761,7 +859,7 @@
 
   // Snapshot-based history. Any new change clears the redo stack.
   const HISTORY_LIMIT = 100;
-  const snapshot = () => JSON.stringify({ events, tasks });
+  const snapshot = () => JSON.stringify({ events, tasks, calendars });
   function pushUndo() {
     undoStack.push(snapshot());
     if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
@@ -771,11 +869,17 @@
     const o = JSON.parse(snap);
     events = o.events;
     tasks = o.tasks;
+    if (o.calendars) {
+      const shown = new Map(calendars.map((c) => [c.id, c.visible]));
+      calendars = o.calendars.map((c) => (shown.has(c.id) ? { ...c, visible: shown.get(c.id) } : c));
+    }
+    saveCalendars();
     saveEvents();
     saveTasks();
     hidePopover();
     render();
     renderTasks();
+    renderCalendars();
   }
   function undo() {
     if (!undoStack.length) { setStatus("Nothing to undo."); return; }
@@ -813,6 +917,7 @@
   function eventsOnDay(day) {
     const ds = startOfDay(day), de = addDays(ds, 1);
     return events
+      .filter(isVisible)
       .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
       .filter(({ s, e }) => s < de && e > ds)
       .sort((a, b) => (b.ev.allDay ? 1 : 0) - (a.ev.allDay ? 1 : 0) || a.s - b.s || b.e - a.e);
@@ -836,15 +941,15 @@
     }
     if (ev.allDay) {
       // Filled bar, like Google's all-day events.
-      c.style.background = COLORS[ev.color] || COLORS.peacock;
-      if (ev.color === "banana") c.style.color = "#202124";
+      c.style.background = colorOf(ev);
+      if (colorNameOf(ev) === "banana") c.style.color = "#202124";
       c.innerHTML = `<span class="mtitle"></span>`;
       c.querySelector(".mtitle").textContent = ev.title || "(No title)";
       if (ev.taskId) c.prepend(checkboxEl(ev));
       return c;
     }
     c.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
-    c.querySelector(".mdot").style.background = COLORS[ev.color] || COLORS.peacock;
+    c.querySelector(".mdot").style.background = colorOf(ev);
     // A multi-day event shows its start time only on the first day.
     c.querySelector(".mtime").textContent = sameDay(s, day) ? fmtTime(s) : "";
     c.querySelector(".mtitle").textContent = ev.title || "(No title)";
@@ -1007,7 +1112,7 @@
     b.setAttribute("aria-label", ev.done ? "Mark as not completed" : "Mark completed");
     b.title = ev.done ? "Mark as not completed" : "Mark completed";
     b.innerHTML = CHECK_SVG;
-    b.style.setProperty("--c", COLORS[ev.color] || COLORS.peacock);
+    b.style.setProperty("--c", colorOf(ev));
     return b;
   }
   function setTaskDone(taskId, done, title) {
@@ -1257,6 +1362,7 @@
       t.target = { allDay: false, start };
       const pv = document.createElement("div");
       pv.className = "event preview";
+      pv.style.setProperty("--pc", COLORS[calById(tasksCalId()).color] || COLORS.peacock);
       pv.innerHTML = `<div class="etitle"></div><div class="etime"></div>`;
       pv.querySelector(".etitle").textContent = t.task.title;
       pv.style.left = "1px";
@@ -1311,7 +1417,7 @@
     setTimeout(() => (suppressClick = false), 0);
     if (cancelled || !t.target) return;
 
-    const ev = { id: uid(), title: t.task.title, color: "peacock", location: "", taskId: t.task.id, done: false };
+    const ev = { id: uid(), title: t.task.title, cal: tasksCalId(), location: "", taskId: t.task.id, done: false };
     if (t.target.allDay) Object.assign(ev, allDaySpan(t.target.date));
     else Object.assign(ev, { start: toISO(t.target.start), end: toISO(new Date(t.target.start.getTime() + 3600000)) });
     pushUndo();
@@ -1379,6 +1485,194 @@
   }
   el.weekHead.addEventListener("pointerup", (e) => endHeadDrag(e, false));
   el.weekHead.addEventListener("pointercancel", (e) => endHeadDrag(e, true));
+
+  // ---------- calendars (tags) ----------
+  const PALETTE = Object.keys(COLORS);
+  const PALETTE_LABEL = {
+    tomato: "Tomato", flamingo: "Flamingo", tangerine: "Tangerine", banana: "Banana", sage: "Sage", basil: "Basil",
+    peacock: "Peacock", blueberry: "Blueberry", lavender: "Lavender", grape: "Grape", graphite: "Graphite",
+  };
+  const CHECK_ICON = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+  const PENCIL = `<svg viewBox="0 0 24 24" width="16" height="16"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
+
+  function renderCalendars() {
+    el.calList.innerHTML = "";
+    for (const c of calendars) {
+      const li = document.createElement("li");
+      li.className = "cal-item" + (c.visible === false ? " off" : "");
+      li.dataset.id = c.id;
+      li.innerHTML = `<button type="button" class="check" role="checkbox"></button><span class="cal-name"></span>
+        <button type="button" class="icon-btn small cal-edit">${PENCIL}</button>`;
+      const box = li.querySelector(".check");
+      box.style.setProperty("--c", COLORS[c.color] || COLORS.peacock);
+      box.setAttribute("aria-checked", String(c.visible !== false));
+      box.setAttribute("aria-label", `Show ${c.name}`);
+      box.innerHTML = CHECK_ICON;
+      li.querySelector(".cal-name").textContent = c.name;
+      const edit = li.querySelector(".cal-edit");
+      edit.setAttribute("aria-label", `Edit ${c.name}`);
+      edit.title = "Edit calendar";
+      el.calList.appendChild(li);
+    }
+  }
+
+  // Show/hide a calendar's events. This is a view setting, so it isn't part of undo.
+  function toggleCalendar(id) {
+    const c = calById(id);
+    if (!c) return;
+    c.visible = c.visible === false;
+    saveCalendars();
+    renderCalendars();
+    hidePopover();
+    render();
+  }
+
+  // Create (cal = null) or edit a calendar: name + colour, and delete when editing.
+  function showCalEditor(cal, anchor) {
+    clearDraft();
+    const p = el.popover;
+    const isNew = !cal;
+    let color = cal ? cal.color : PALETTE.find((k) => !calendars.some((c) => c.color === k)) || "peacock";
+    p.innerHTML = `${CLOSE_BTN}
+      <div class="cal-editor">
+        <div class="ce-title">${isNew ? "New calendar" : "Edit calendar"}</div>
+        <input class="ce-name" type="text" maxlength="60" placeholder="Name" aria-label="Calendar name">
+        <div class="ce-swatches" role="radiogroup" aria-label="Color"></div>
+        <div class="ce-error" aria-live="polite"></div>
+        <div class="ce-actions">
+          ${isNew ? "" : `<button type="button" class="ce-delete">Delete</button>`}
+          <span class="ce-spacer"></span>
+          <button type="button" class="ce-cancel">Cancel</button>
+          <button type="button" class="ce-save">${isNew ? "Create" : "Save"}</button>
+        </div>
+      </div>`;
+    delete p.dataset.eventId;
+    const name = p.querySelector(".ce-name");
+    name.value = cal ? cal.name : "";
+    const sw = p.querySelector(".ce-swatches");
+    const paint = () => sw.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("sel", b.dataset.color === color);
+      b.setAttribute("aria-checked", String(b.dataset.color === color));
+    });
+    for (const k of PALETTE) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.color = k;
+      b.style.background = COLORS[k];
+      b.title = PALETTE_LABEL[k];
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-label", PALETTE_LABEL[k]);
+      b.innerHTML = CHECK_ICON;
+      b.onclick = (e) => { e.stopPropagation(); color = k; paint(); };
+      sw.appendChild(b);
+    }
+    paint();
+    const err = p.querySelector(".ce-error");
+    const save = () => {
+      const val = name.value.trim();
+      if (!val) { err.textContent = "Give the calendar a name."; name.focus(); return; }
+      const clash = calByName(val);
+      if (clash && clash !== cal) { err.textContent = "There's already a calendar with that name."; name.focus(); return; }
+      pushUndo();
+      if (isNew) calendars.push({ id: "cal-" + uid(), name: val, color, visible: true });
+      else Object.assign(cal, { name: val, color });
+      saveCalendars();
+      hidePopover();
+      renderCalendars();
+      render();
+      setStatus(`${isNew ? "Created" : "Updated"} calendar “${escapeHTML(val)}”. <button class="undo" type="button">Undo</button>`);
+    };
+    p.querySelector(".ce-save").onclick = (e) => { e.stopPropagation(); save(); };
+    p.querySelector(".ce-cancel").onclick = hidePopover;
+    p.querySelector("[data-close]").onclick = hidePopover;
+    name.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); save(); }
+    });
+    name.addEventListener("input", () => { err.textContent = ""; });
+    const del = p.querySelector(".ce-delete");
+    if (del) {
+      const count = events.filter((ev) => ev.cal === cal.id).length;
+      let armed = false;
+      del.onclick = (e) => {
+        e.stopPropagation();
+        if (calendars.length <= 1) { err.textContent = "You need at least one calendar."; return; }
+        // Two-step delete: the first click asks for confirmation.
+        if (!armed && count) {
+          armed = true;
+          del.textContent = `Delete with ${count} event${count === 1 ? "" : "s"}?`;
+          del.classList.add("armed");
+          return;
+        }
+        pushUndo();
+        calendars = calendars.filter((c) => c !== cal);
+        events = events.filter((ev) => ev.cal !== cal.id);
+        saveCalendars();
+        saveEvents();
+        hidePopover();
+        renderCalendars();
+        render();
+        setStatus(`Deleted calendar “${escapeHTML(cal.name)}”. <button class="undo" type="button">Undo</button>`);
+      };
+    }
+    p.hidden = false;
+    placePopover(anchor);
+    name.focus();
+    name.select();
+  }
+
+  // Calendar picker inside the event popover.
+  function toggleCalMenu(ev, anchor) {
+    const p = el.popover;
+    const open = p.querySelector(".cal-menu");
+    if (open) { open.remove(); return; }
+    const menu = document.createElement("div");
+    menu.className = "cal-menu";
+    menu.setAttribute("role", "menu");
+    for (const c of calendars) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitemradio");
+      b.setAttribute("aria-checked", String(c.id === ev.cal));
+      b.innerHTML = `<span class="cm-dot"></span><span class="cm-name"></span><span class="cm-check">${c.id === ev.cal ? CHECK_ICON : ""}</span>`;
+      b.querySelector(".cm-dot").style.background = COLORS[c.color] || COLORS.peacock;
+      b.querySelector(".cm-name").textContent = c.name + (c.visible === false ? " (hidden)" : "");
+      b.onclick = (e) => { e.stopPropagation(); setEventCalendar(ev, c.id); };
+      menu.appendChild(b);
+    }
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "cm-new";
+    add.textContent = "+ New calendar";
+    add.onclick = (e) => { e.stopPropagation(); showCalEditor(null, el.calAdd); };
+    menu.appendChild(add);
+    p.appendChild(menu);
+    const pr = p.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, ar.left - pr.left)}px`;
+    menu.style.top = `${ar.bottom - pr.top + 4}px`;
+  }
+
+  function setEventCalendar(ev, calId) {
+    if (ev.cal === calId) { el.popover.querySelector(".cal-menu")?.remove(); return; }
+    pushUndo();
+    ev.cal = calId;
+    saveEvents();
+    const cal = calById(calId);
+    flashIds = new Set([ev.id]);
+    render();
+    flashIds = new Set();
+    const anchor = cal.visible !== false && document.querySelector(`[data-id="${ev.id}"]:not(.echeck)`);
+    if (anchor) showPopover(ev, anchor); else hidePopover();
+    setStatus(`Moved “${escapeHTML(ev.title)}” to ${escapeHTML(cal.name)}. <button class="undo" type="button">Undo</button>`);
+  }
+
+  el.calAdd.addEventListener("click", (e) => { e.stopPropagation(); showCalEditor(null, el.calAdd); });
+  el.calList.addEventListener("click", (e) => {
+    const li = e.target.closest(".cal-item");
+    if (!li) return;
+    e.stopPropagation();
+    if (e.target.closest(".cal-edit")) showCalEditor(calById(li.dataset.id), li);
+    else toggleCalendar(li.dataset.id);
+  });
 
   // ---------- navigation ----------
   function goToDate(d, doRender = true) {
@@ -1469,6 +1763,7 @@
       return;
     }
     if (!el.popover.contains(e.target)) hidePopover();
+    else if (!e.target.closest(".cal-menu")) el.popover.querySelector(".cal-menu")?.remove();
     if (!el.viewMenu.hidden && !el.viewMenu.contains(e.target)) {
       el.viewMenu.hidden = true;
       el.viewBtn.setAttribute("aria-expanded", "false");
@@ -1506,5 +1801,6 @@
 
   render();
   renderTasks();
+  renderCalendars();
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();
