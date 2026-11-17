@@ -46,7 +46,9 @@ You can also work with the grid directly:
   event: the line moves to the top left, the sidebar becomes the Whentomeet panel, and the calendar shows just
   the week's day headers above big 30-minute blocks for the chosen days and hours — green where you have
   nothing scheduled, gray where an event takes the time. Each of your events appears as one line (like the
-  month view) in the block where it starts. Drag across blocks to mark time free or busy.
+  month view) in the block where it starts, with a bar in its calendar colour running down to where it ends
+  and the end time at the bottom; overlapping events get side-by-side lanes. Drag across blocks to mark
+  time free or busy.
 - **Group availability** shows only the overlap (greener = more people free); click a time to see who is
   and isn't available. Click a person to see just their availability.
 - Close with the ✕ or by clicking the top line again. Everything is stored in the browser.

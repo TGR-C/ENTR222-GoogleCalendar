@@ -299,10 +299,34 @@ body[data-mode="timeline"] .logo-tl { display: block; }
 .wtm-cell.g { cursor: pointer; }
 .wtm-cell.sel { outline: 3px solid #137333; outline-offset: -3px; }
 .mg-count { font: 500 11px Roboto, sans-serif; color: #0d652d; opacity: .85; }
+/* your events: a bar in the calendar colour from start to end, with the end time at the bottom */
+.mg-bars { position: relative; pointer-events: none; z-index: 2; }
+.mg-bar {
+  position: absolute; border-radius: 3px; background: var(--c);
+  box-shadow: 0 0 0 1.5px rgba(255,255,255,.95);
+}
+.mg-bar::before { /* start dot */
+  content: ""; position: absolute; left: 50%; top: -3px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 0 1.5px #fff;
+}
+.mg-bar.cut-top::before { display: none; }
+.mg-bar::after { /* end cap */
+  content: ""; position: absolute; left: -2px; right: -2px; bottom: -1px; height: 3px; border-radius: 2px; background: var(--c);
+}
+.mg-end {
+  position: absolute; height: 16px; line-height: 14px; padding: 0 5px; border-radius: 8px; white-space: nowrap;
+  font: 500 10px Roboto, sans-serif; color: #202124; background: #fff; border: 1px solid var(--c);
+  box-shadow: 0 1px 2px rgba(60,64,67,.25);
+}
+.mg-end.cut::after { content: " ↓"; }
+.mg-end.multi { border-color: #9aa0a6; display: inline-flex; align-items: center; gap: 2px; }
+.mg-end-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.mg-end-dot:last-of-type { margin-right: 2px; }
 /* your events: one line each, like the month view, in the block where they start */
 .mg-ev {
   display: flex; align-items: center; gap: 4px; min-width: 0; height: 18px; padding: 0 5px; border-radius: 4px;
-  background: rgba(255,255,255,.88); font-size: 11px; pointer-events: none; flex-shrink: 0;
+  background: rgba(255,255,255,.92); font-size: 11px; pointer-events: none; flex-shrink: 0;
+  border-left: 3px solid var(--c, #039be5);
 }
 .mg-ev .mdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .mg-ev .mtime { color: var(--text-2); flex-shrink: 0; }

@@ -3224,18 +3224,27 @@
         g.appendChild(off);
         continue;
       }
-      // Your events, placed in the block that contains their start (or the first block if they began earlier).
+      // Your events: a title line in the block where each starts (or the first block if it began
+      // earlier), plus a bar down to where it ends. Overlapping events get side-by-side lanes.
       const lines = {};
+      const dayEvents = [];
+      let laneCount = 0;
+      const winStart = slotTimes(m, date, 0)[0], winEnd = slotTimes(m, date, n - 1)[1];
       if (wtm.view === "mine") {
-        const winStart = slotTimes(m, date, 0)[0], winEnd = slotTimes(m, date, n - 1)[1];
+        const laneEnds = [];
         events
           .filter((ev) => !ev.allDay && isVisible(ev) && parseISO(ev.start) < winEnd && parseISO(ev.end) > winStart)
-          .sort((a, b) => parseISO(a.start) - parseISO(b.start))
+          .sort((a, b) => parseISO(a.start) - parseISO(b.start) || parseISO(b.end) - parseISO(a.end))
           .forEach((ev) => {
-            const st = parseISO(ev.start);
+            const st = parseISO(ev.start), en = parseISO(ev.end);
             const i = clamp(Math.floor((st - winStart) / (SLOT_MIN * 60000)), 0, n - 1);
             (lines[i] = lines[i] || []).push(ev);
+            let lane = laneEnds.findIndex((t) => t <= st);
+            if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+            laneEnds[lane] = en;
+            dayEvents.push({ ev, st, en, lane });
           });
+        laneCount = laneEnds.length;
       }
       for (let i = 0; i < n; i++) {
         const cell = document.createElement("div");
@@ -3247,6 +3256,7 @@
         cell.dataset.col = ci;
         cell.dataset.date = dayKey(date);
         if ((m.start * 60 + i * SLOT_MIN) % 60 === 0) cell.classList.add("hour");
+        if (laneCount) cell.style.paddingLeft = `${BAR_X0 + laneCount * BAR_STEP + 2}px`; // keep titles clear of the bars
         if (wtm.view === "group") {
           let k = mineFree(m, dk, i, date) ? 1 : 0;
           for (const p of m.members) if (memberFree(p, dk, i)) k++;
@@ -3267,6 +3277,7 @@
           for (const ev of (lines[i] || [])) {
             const line = document.createElement("div");
             line.className = "mg-ev";
+            line.style.setProperty("--c", colorOf(ev));
             line.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
             line.querySelector(".mdot").style.background = colorOf(ev);
             line.querySelector(".mtime").textContent = fmtTime(parseISO(ev.start));
@@ -3277,12 +3288,81 @@
         }
         g.appendChild(cell);
       }
+      if (dayEvents.length) {
+        const layer = document.createElement("div");
+        layer.className = "mg-bars";
+        layer.style.gridColumn = String(ci + 2);
+        layer.style.gridRow = `1 / ${n + 1}`;
+        layer._bars = dayEvents;
+        layer._win = winStart;
+        g.appendChild(layer);
+      }
     }
     wz.grid.appendChild(g);
+    placeEventBars(g, n);
     wz.grid.scrollTop = scroll;
     // Keep the day headers lined up with the grid when it has a scrollbar.
     const sb = wz.grid.offsetWidth - wz.grid.clientWidth;
     document.documentElement.style.setProperty("--scrollbar", `${sb}px`);
+  }
+
+  // Draw each event's bar from its start to its end, using the real block positions (blocks have gaps).
+  const BAR_X0 = 4, BAR_STEP = 8, BAR_W = 4;
+  function placeEventBars(g, n) {
+    const slotMs = SLOT_MIN * 60000;
+    g.querySelectorAll(".mg-bars").forEach((layer) => {
+      const col = layer.style.gridColumn;
+      const cells = [...g.querySelectorAll(".wtm-cell")].filter((c) => c.style.gridColumn === col)
+        .sort((a, b) => Number(a.dataset.i) - Number(b.dataset.i));
+      const base = layer.getBoundingClientRect().top;
+      if (!cells.length || !layer.getBoundingClientRect().height) return;
+      const rects = cells.map((c) => { const r = c.getBoundingClientRect(); return { top: r.top - base, h: r.height }; });
+      // Position (in px) of a moment within the window. An end time that falls exactly on a block
+      // boundary stops at the bottom of the block before it (not across the gap into the next block).
+      const yAt = (t, isEnd = false) => {
+        const pos = (t - layer._win) / slotMs;
+        if (pos <= 0) return rects[0].top;
+        if (pos >= n) return rects[n - 1].top + rects[n - 1].h;
+        if (isEnd && Number.isInteger(pos)) return rects[pos - 1].top + rects[pos - 1].h;
+        const i = Math.min(n - 1, Math.floor(pos));
+        return rects[i].top + (pos - i) * rects[i].h;
+      };
+      const labels = [];
+      for (const b of layer._bars) {
+        const color = colorOf(b.ev);
+        const x = BAR_X0 + b.lane * BAR_STEP;
+        const y1 = yAt(b.st), y2 = Math.max(yAt(b.en, true), y1 + 6);
+        const bar = document.createElement("div");
+        bar.className = "mg-bar" + (b.st < layer._win ? " cut-top" : "");
+        bar.style.cssText = `left:${x}px;top:${y1}px;height:${y2 - y1}px;width:${BAR_W}px;--c:${color}`;
+        bar.title = `${b.ev.title || "(No title)"} · ${fmtRange(b.st, b.en)}`;
+        layer.appendChild(bar);
+        labels.push({ y: y2, x, color, text: fmtTime(b.en), cut: (b.en - layer._win) / slotMs > n });
+      }
+      // End-time pills next to the bar ends. Events ending at the same moment share one pill (a dot per
+      // event); pills that would still overlap are nudged apart.
+      labels.sort((a, b) => a.y - b.y || a.x - b.x);
+      const merged = [];
+      for (const l of labels) {
+        const prev = merged[merged.length - 1];
+        if (prev && prev.text === l.text && Math.abs(prev.y - l.y) < 1) { prev.colors.push(l.color); prev.x = Math.max(prev.x, l.x); }
+        else merged.push({ ...l, colors: [l.color] });
+      }
+      const PILL_H = 16;
+      let lastY = -Infinity;
+      for (const l of merged) {
+        const y = Math.max(l.y - PILL_H / 2, lastY + PILL_H + 1);
+        lastY = y;
+        const pill = document.createElement("div");
+        pill.className = "mg-end" + (l.cut ? " cut" : "") + (l.colors.length > 1 ? " multi" : "");
+        pill.style.cssText = `left:${l.x + BAR_W + 3}px;top:${y}px;--c:${l.colors[0]}`;
+        if (l.colors.length > 1) {
+          for (const c of l.colors) { const d = document.createElement("span"); d.className = "mg-end-dot"; d.style.background = c; pill.appendChild(d); }
+        }
+        pill.appendChild(document.createTextNode(l.text));
+        layer.appendChild(pill);
+      }
+    });
   }
 
   // Painting your availability: drag a rectangle; the first block decides free or busy.
