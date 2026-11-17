@@ -3,11 +3,21 @@
 (() => {
   "use strict";
 
-  const COLORS = {
+  const COLORS_LIGHT = {
     tomato: "#d50000", flamingo: "#e67c73", tangerine: "#f4511e", banana: "#f6bf26",
     sage: "#33b679", basil: "#0b8043", peacock: "#039be5", blueberry: "#3f51b5",
     lavender: "#7986cb", grape: "#8e24aa", graphite: "#616161",
   };
+  // Dark mode: the same hues, a little muted (15% less saturated, 20% toward the page colour),
+  // so white text stays readable and the fills don't glare on the dark page.
+  const COLORS_DARK = {
+    tomato: "#a00f0f", flamingo: "#b56d67", tangerine: "#ba4b29", banana: "#c09b33",
+    sage: "#379067", basil: "#16653c", peacock: "#187fb1", blueberry: "#3e4a8e",
+    lavender: "#6b74a3", grape: "#752d88", graphite: "#545454",
+  };
+  const isDarkTheme = () => document.documentElement.dataset.theme === "dark";
+  // Picked at render time; swapped (and everything re-rendered) when the theme changes.
+  let COLORS = isDarkTheme() ? COLORS_DARK : COLORS_LIGHT;
   const DAY_SHORT = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
   const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
     "August", "September", "October", "November", "December"];
@@ -3527,7 +3537,7 @@
         if (wtm.view === "group") {
           let k = mineFree(m, dk, i, date) ? 1 : 0;
           for (const p of m.members) if (memberFree(p, dk, i)) k++;
-          cell.style.background = k ? `rgba(52,168,83,${(0.15 + 0.75 * (k / people)).toFixed(3)})` : "";
+          cell.style.background = k ? `rgba(var(--heat-rgb), ${(0.15 + 0.75 * (k / people)).toFixed(3)})` : "";
           cell.classList.add(k ? "g" : "busy");
           cell.title = `${k}/${people} available`;
           if (k) {
@@ -4362,7 +4372,7 @@
   }
   function hubItemEl(it) {
     const card = document.createElement("div");
-    const color = it.type === "event" ? (COLORS[(calById(it.cal) || calById(defaultCalId())).color] || COLORS.peacock) : "#1a73e8";
+    const color = it.type === "event" ? (COLORS[(calById(it.cal) || calById(defaultCalId())).color] || COLORS.peacock) : (isDarkTheme() ? "#8ab4f8" : "#1a73e8");
     // (hc-ev / hc-task, not "event"/"task": those class names are taken by the calendar's own blocks)
     card.className = `hc-item ${it.type === "event" ? "hc-ev" : "hc-task"}${it.keep ? " keep" : ""}`;
     card.style.setProperty("--c", color);
@@ -5975,6 +5985,42 @@
     else if (!dragging()) refreshMain();
   });
   setInterval(() => { if (!dragging() && timeView()) renderGrid(); }, 60000); // keep the red "now" line moving
+
+  // ----- dark mode: follows the system until the user picks with the toggle (then it's saved) -----
+  const THEME_KEY = "nl-calendar-theme";
+  const themeBtn = $("themeBtn");
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  const savedTheme = () => {
+    try { const v = localStorage.getItem(THEME_KEY); return v === "light" || v === "dark" ? v : null; } catch { return null; }
+  };
+  function applyTheme(theme) {
+    const root = document.documentElement;
+    const changed = root.dataset.theme !== theme;
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
+    COLORS = theme === "dark" ? COLORS_DARK : COLORS_LIGHT;
+    const label = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+    themeBtn.setAttribute("aria-pressed", String(theme === "dark"));
+    themeBtn.setAttribute("aria-label", label);
+    themeBtn.title = label;
+    // Mid-drag (an OS switch), leave the DOM alone: the drag's own end re-renders with the new colours.
+    if (!changed || dragging() || tl.drag) return;
+    // Event colours are written inline, so redraw whatever is on screen.
+    hidePopover();
+    render();
+    renderCalendars();
+    renderBookingList();
+    if (wtm.active) renderMeetPanel();
+    if (mode === "timeline") { buildTimeline(); renderWork(); }
+    else if (mode === "hub") renderHub();
+  }
+  themeBtn.addEventListener("click", () => {
+    const next = isDarkTheme() ? "light" : "dark";
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* storage blocked: still switch for this visit */ }
+    applyTheme(next);
+  });
+  darkQuery.addEventListener("change", (e) => { if (!savedTheme()) applyTheme(e.matches ? "dark" : "light"); });
+  applyTheme(savedTheme() || (darkQuery.matches ? "dark" : "light"));
 
   render();
   renderTasks();
