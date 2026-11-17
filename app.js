@@ -1830,7 +1830,7 @@
     if (view === "week") el.weekBody.scrollTop = hourPx() * 7.5;
   }
 
-  // ---------- modes: Calendar / Action timeline ----------
+  // ---------- modes: Calendar / Action Timeline ----------
   const MODE_KEY = "nl-calendar-mode";
   let mode = (() => {
     try { return localStorage.getItem(MODE_KEY) === "timeline" ? "timeline" : "calendar"; } catch { return "calendar"; }
@@ -1841,7 +1841,7 @@
     mode = m;
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
-    modeEl.label.textContent = m === "timeline" ? "Action timeline" : "Calendar";
+    modeEl.label.textContent = m === "timeline" ? "Action Timeline" : "Calendar";
     const menuBtn = $("menuBtn");
     menuBtn.setAttribute("aria-label", m === "timeline" ? "AI chat + vertical timeline" : "Main menu");
     menuBtn.title = m === "timeline" ? "AI chat + vertical timeline" : "Main menu";
@@ -1867,7 +1867,7 @@
     if (b) { e.stopPropagation(); setMode(b.dataset.mode); }
   });
 
-  // ---------- Action timeline (read-only) ----------
+  // ---------- Action Timeline (read-only) ----------
   // Timed events from visible calendars, in order, laid out as nodes on one line. The focused
   // node sits in the centre; the next one sits toward the faded right edge.
   const tlEl = {

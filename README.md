@@ -36,9 +36,9 @@ You can also work with the grid directly:
   The AI box can do all of this too ("make a Health tag in green and put the gym in it", "hide Classes").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
 
-## Action timeline mode
+## Action Timeline mode
 
-Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "what's now / what's next" view:
+Click **Calendar ▾** (top left) and pick **Action Timeline** for a read-only "what's now / what's next" view:
 
 - One horizontal line. The **centre node** is the imminent event (happening now, or the next to start) with
   that day's all-day items underneath; the **right node** is the next event; both edges fade out (the previous event shows faded on the left).
@@ -51,14 +51,14 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to
   Calendar to change anything. The mode is remembered between visits.
 
-## Work with AI (Action timeline)
+## Work with AI (Action Timeline)
 
 - **✨ Work** (bottom middle) starts an AI chat about the event shown in the centre. If that day has several
   things (the event plus all-day items) you pick one; with just one it opens the input bar straight away.
 - After the first message the bar becomes a small chat box. Each event/task has its own chat; asking the AI
   to draft something (agenda, notes, email, checklist…) creates a file **attached to the event**. You can
   also attach your own text files (📎) for the AI to read.
-- **Expand** (or **☰** at the top left in Action timeline mode) turns the chat into the left half of the
+- **Expand** (or **☰** at the top left in Action Timeline mode) turns the chat into the left half of the
   screen with the timeline vertical on the right; ☰ also opens this view when no chat has started yet.
   Browsing the timeline doesn't disturb the chat; a **Work** button on another event starts a new session.
 - Several sessions can run at once. The **session switcher** (chat header) jumps between them and moves the
