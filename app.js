@@ -3962,10 +3962,8 @@
     allBtn.title = allOn ? "Unselect every message in this view" : `Select all ${msgs.length} messages in this view (every page)`;
     allBtn.setAttribute("aria-pressed", String(allOn));
     allBtn.addEventListener("click", () => {
-      for (const m of msgs) { if (allOn) hub.selected.delete(m.id); else hub.selected.add(m.id); }
-      renderHubSources();
-      renderHubCols();
-      renderConstructTools();
+      toggleMsgs(msgs.map((m) => m.id), !allOn);
+      refreshSelection();
     });
     const grid = box.querySelector(".hub-grid");
     for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) grid.appendChild(hubMsgEl(m, hub.views.length !== 1));
@@ -4007,14 +4005,100 @@
     }
     b.style.setProperty("--src", srcById(m.source).color);
     b.querySelector(".hm-text").textContent = m.text;
-    b.addEventListener("click", () => {
-      if (hub.selected.has(m.id)) hub.selected.delete(m.id); else hub.selected.add(m.id);
-      renderHubSources();
-      renderHubCols();
-      renderConstructTools();
+    b.dataset.id = m.id;
+    // Mouse/touch selection is handled on the feed (click, drag, Shift-click); this covers Enter/Space.
+    b.addEventListener("click", (e) => {
+      if (e.detail !== 0) return;
+      toggleMsgs([m.id], !hub.selected.has(m.id));
+      hub.msgAnchor = m.id;
+      refreshSelection();
     });
     return b;
   }
+
+  // ----- selecting messages: click toggles one, drag paints a range (the first card decides select or
+  // unselect), Shift+click selects everything between the last clicked message and this one -----
+  let msgDrag = null;
+  function toggleMsgs(ids, on) { for (const id of ids) { if (on) hub.selected.add(id); else hub.selected.delete(id); } }
+  function refreshSelection() {
+    const scroll = hubEl.cols.querySelector(".hub-grid")?.scrollTop || 0;
+    renderHubSources();
+    renderHubCols();
+    renderConstructTools();
+    const g = hubEl.cols.querySelector(".hub-grid");
+    if (g) g.scrollTop = scroll;
+  }
+  const msgCardAt = (x, y) => {
+    const n = document.elementFromPoint(x, y);
+    const c = n && n.closest && n.closest(".hub-msg");
+    return c && hubEl.cols.contains(c) ? c : null;
+  };
+  const viewIds = () => viewMsgs().map((m) => m.id);
+  function msgRange(a, b) {
+    const ids = viewIds();
+    const i = ids.indexOf(a), j = ids.indexOf(b);
+    return i === -1 || j === -1 ? [b] : ids.slice(Math.min(i, j), Math.max(i, j) + 1);
+  }
+  function previewMsgDrag() {
+    const range = new Set(msgRange(msgDrag.start, msgDrag.cur));
+    hubEl.cols.querySelectorAll(".hub-msg").forEach((c) => {
+      const on = range.has(c.dataset.id) ? msgDrag.target : hub.selected.has(c.dataset.id);
+      c.classList.toggle("sel", on);
+      c.setAttribute("aria-checked", String(on));
+    });
+  }
+  function msgAutoScroll() {
+    if (!msgDrag) return;
+    const g = hubEl.cols.querySelector(".hub-grid");
+    if (g) {
+      const r = g.getBoundingClientRect(), EDGE = 40;
+      const dy = msgDrag.y < r.top + EDGE ? -Math.ceil((r.top + EDGE - msgDrag.y) / 4)
+        : msgDrag.y > r.bottom - EDGE ? Math.ceil((msgDrag.y - (r.bottom - EDGE)) / 4) : 0;
+      if (dy) {
+        g.scrollTop += Math.max(-16, Math.min(16, dy));
+        const c = msgCardAt(msgDrag.x, Math.min(Math.max(msgDrag.y, r.top + 2), r.bottom - 2));
+        if (c && c.dataset.id !== msgDrag.cur) { msgDrag.cur = c.dataset.id; msgDrag.moved = true; previewMsgDrag(); }
+      }
+    }
+    requestAnimationFrame(msgAutoScroll);
+  }
+  hubEl.cols.addEventListener("pointerdown", (e) => {
+    const c = e.target.closest(".hub-msg");
+    if (!c || e.button !== 0) return;
+    e.preventDefault();
+    const id = c.dataset.id;
+    if (e.shiftKey && hub.msgAnchor && viewIds().includes(hub.msgAnchor)) {
+      toggleMsgs(msgRange(hub.msgAnchor, id), true);
+      refreshSelection();
+      return;
+    }
+    msgDrag = { start: id, cur: id, target: !hub.selected.has(id), moved: false, x: e.clientX, y: e.clientY };
+    hubEl.cols.setPointerCapture(e.pointerId);
+    previewMsgDrag();
+    msgAutoScroll();
+  });
+  hubEl.cols.addEventListener("pointermove", (e) => {
+    if (!msgDrag) return;
+    msgDrag.x = e.clientX; msgDrag.y = e.clientY;
+    const c = msgCardAt(e.clientX, e.clientY);
+    if (!c || c.dataset.id === msgDrag.cur) return;
+    msgDrag.cur = c.dataset.id;
+    msgDrag.moved = true;
+    previewMsgDrag();
+  });
+  const endMsgDrag = (e, cancelled) => {
+    if (!msgDrag) return;
+    const d = msgDrag;
+    msgDrag = null;
+    try { hubEl.cols.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (!cancelled) {
+      toggleMsgs(msgRange(d.start, d.cur), d.target);
+      hub.msgAnchor = d.cur;
+    }
+    refreshSelection();
+  };
+  hubEl.cols.addEventListener("pointerup", (e) => endMsgDrag(e, false));
+  hubEl.cols.addEventListener("pointercancel", (e) => endMsgDrag(e, true));
 
   // ----- Construct -----
   function renderConstruct() {

@@ -68,7 +68,8 @@ Click the **Connection Hub** tab (top left). It uses made-up demo messages — n
   click a source to see only its messages (click it again to go back to all), or drag across sources,
   Shift-click a range, or Ctrl/⌘-click to show several sources together. Messages are listed one block
   per message, top to bottom, 12 per page (‹ › to page, **«** back to page 1). Click messages to select them,
-  or **Select all** to take every message in the current view. **Add a source** connects more apps (demo
+  drag across them (the first one decides select or unselect; the list scrolls at the edges), Shift-click
+  to select a range (works across pages), or **Select all** to take every message in the current view. **Add a source** connects more apps (demo
   only — they arrive empty); ☰ hides the sources list.
 - **Construct** (the big section on the right): choose **Build: Auto / Events / Tasks**, then either
   **✨ construct from the selected messages** or add events or tasks **by hand** (+ Event / + Task).
