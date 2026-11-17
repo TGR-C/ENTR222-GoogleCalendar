@@ -1,0 +1,13 @@
+{
+  "name": "entr222-google-calendar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Prototype week calendar with natural-language event editing via Claude",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
