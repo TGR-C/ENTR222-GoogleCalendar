@@ -64,6 +64,9 @@
           <button role="menuitem" data-view="month">Month <span class="kbd">M</span></button>
         </div>
       </div>
+      <button class="icon-btn help-btn" id="helpBtn" type="button" aria-label="Help: tour of this mode" title="Help">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
+      </button>
       <div class="avatar">T</div>
     </div>
   </header>
@@ -115,7 +118,7 @@
         <ul class="wtm-items" id="wtmItems"></ul>
       </section>
 
-      <section class="tasks" aria-label="Tasks">
+      <section class="tasks" aria-label="Tasks" title="Drag a task onto the calendar to schedule it">
         <div class="tasks-head">
           <span>Tasks</span>
           <button class="icon-btn small" id="taskAdd" aria-label="Add a task" title="Add a task">
@@ -124,7 +127,6 @@
         </div>
         <ul class="task-list" id="taskList"></ul>
         <div class="task-empty" id="taskEmpty" hidden>No tasks. Add one with + or the box above.</div>
-        <div class="task-tip">Drag a task onto the calendar to schedule it.</div>
       </section>
 
       <section class="my-cals" aria-label="My calendars">
@@ -169,7 +171,7 @@
 
   <!-- Action Timeline mode: read-only view of now / next on a draggable line -->
   <section class="timeline" id="timeline" aria-label="Action Timeline" hidden>
-    <div class="tl-stage" id="tlStage">
+    <div class="tl-stage" id="tlStage" title="Drag, scroll or use the arrow keys to move along the timeline (view only)">
       <div class="tl-line" aria-hidden="true"></div>
       <div class="tl-track" id="tlTrack"></div>
       <div class="tl-countdown" id="tlCountdown" aria-live="polite"></div>
@@ -186,7 +188,6 @@
         <button class="tl-now" id="tlNow" type="button" hidden>Now</button>
       </div>
       <div class="tl-empty" id="tlEmpty" hidden></div>
-      <div class="tl-hint">Drag the line to look ahead · view only — switch to Calendar to make changes</div>
       <button class="tl-work" id="tlWork" type="button" hidden>
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
         <span id="tlWorkLabel">Work</span>
@@ -242,12 +243,11 @@
     <aside class="hub-side" id="hubSide">
       <div class="hub-side-head">Sources</div>
       <div class="hub-side-note" id="hubSideNote"></div>
-      <ul class="hub-sources" id="hubSources"></ul>
+      <ul class="hub-sources" id="hubSources" title="Click a source to filter · drag across or Shift-click to combine several"></ul>
       <button type="button" class="hub-add-src" id="hubAddSrc">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
         Add a source
       </button>
-      <div class="hub-side-tip">Drag across sources or Shift-click to show several at once. Messages work the same way: drag or Shift-click to select many.</div>
       <div class="hub-side-foot">Demo data — these sources aren't really connected.</div>
     </aside>
     <div class="hub-main" id="hubMain">
@@ -288,6 +288,28 @@
       </section>
     </div>
   </section>
+
+  <!-- Help tour: highlights one thing at a time; sections can be skipped -->
+  <div class="tour" id="tour" hidden>
+    <div class="tour-ring" id="tourRing" hidden></div>
+    <div class="tour-card" id="tourCard" role="dialog" aria-modal="true" aria-labelledby="tourTitle" tabindex="-1">
+      <div class="tour-top">
+        <div class="tour-sections" id="tourSections"></div>
+        <button type="button" class="icon-btn small" id="tourClose" aria-label="Close help">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="tour-title" id="tourTitle"></div>
+      <div class="tour-body" id="tourBody"></div>
+      <div class="tour-foot">
+        <span class="tour-count" id="tourCount"></span>
+        <button type="button" class="tour-skip" id="tourSkip">Skip section</button>
+        <span class="tour-spacer"></span>
+        <button type="button" class="tour-btn" id="tourBack">Back</button>
+        <button type="button" class="tour-btn primary" id="tourNext">Next</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Connection Hub: add a source (demo) -->
   <div class="viewer hub-dlg" id="hubDlg" hidden>

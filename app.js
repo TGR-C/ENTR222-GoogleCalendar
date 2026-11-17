@@ -3028,10 +3028,8 @@
         });
         box.appendChild(days);
       }
-      const hint = document.createElement("div");
-      hint.className = "wz-hint";
-      hint.textContent = w.mode === "dates" ? "Click or drag to choose the dates." : "Choose the weekdays that work.";
-      box.appendChild(hint);
+      // (the instruction is a tooltip now; the help tour covers the rest)
+      box.lastElementChild.title = w.mode === "dates" ? "Click or drag to choose the dates" : "Choose the weekdays that work";
       const count = w.mode === "dates" ? w.dates.size : w.days.size;
       actions.append(btn("Cancel", "", closeWizard), btn("Next", "primary", () => { w.step = "times"; renderWizard(); }, !count));
     } else if (w.step === "times") {
@@ -3538,9 +3536,7 @@
 
     const help = p.querySelector(".wtm-help");
     if (wtm.view === "mine") {
-      help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Not available</div>
-        By default, times with an event on your calendar are not available and the rest are available.
-        Drag on the calendar to mark times available or not available.`;
+      help.innerHTML = `<div class="wtm-legend2" title="Drag on the calendar to mark times available or not available"><span class="sw free"></span>Available <span class="sw busy"></span>Not available</div>`;
       const reset = document.createElement("button");
       reset.type = "button";
       reset.className = "wtm-reset";
@@ -3550,8 +3546,7 @@
       reset.addEventListener("click", (e) => { e.stopPropagation(); resetMine(m); });
       help.appendChild(reset);
     } else if (wtm.view === "group") {
-      help.innerHTML = `<div class="wtm-scale"><span>0/${people}</span><span class="bar"></span><span>${people}/${people}</span></div>
-        The greener a time, the more people are free. Click a time to see who.`;
+      help.innerHTML = `<div class="wtm-scale" title="Greener = more people free · click a time to see who"><span>0/${people}</span><span class="bar"></span><span>${people}/${people}</span></div>`;
     } else {
       const mem = m.members.find((x) => x.id === wtm.member);
       help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Not available</div>`;
@@ -3629,6 +3624,16 @@
       saveMeets();
       exitMeet();
     });
+  }
+
+  // First visit: an example Whentomeet over the next three weekdays with a few people already invited.
+  if (localStorage.getItem(MEET_KEY) === null) {
+    const days = [];
+    for (let d = addDays(startOfDay(new Date()), 1); days.length < 3; d = addDays(d, 1)) if (d.getDay() % 6) days.push(dayKey(d));
+    const ex = { id: "m-example", name: "Pitch practice", mode: "dates", dates: days, days: [], start: 9, end: 17, members: [], mine: {}, createdAt: Date.now() };
+    for (const c of CONTACTS.slice(0, 4)) ex.members.push({ id: uid(), name: c.name, email: c.email, avail: randomAvail(ex, c.email) });
+    meets = [ex];
+    saveMeets();
   }
 
   wz.newBtn.addEventListener("click", (e) => { e.stopPropagation(); if (wtm.wizard) closeWizard(); else openWizard(); });
@@ -4144,7 +4149,7 @@
     hubEl.add.disabled = !keep;
     hubEl.list.innerHTML = "";
     if (!items.length) {
-      hubEl.list.innerHTML = `<div class="hc-empty">Nothing constructed yet. Pick messages and let AI construct, or add an event or task by hand.</div>`;
+      hubEl.list.innerHTML = `<div class="hc-empty" title="Select messages and click From selected messages, or add an event or task by hand">Nothing constructed yet.</div>`;
       return;
     }
     for (const it of items) hubEl.list.appendChild(hubItemEl(it));
@@ -4410,6 +4415,131 @@
   hubEl.status.addEventListener("click", (e) => {
     if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
   });
+
+  // ---------- Help tour (one per mode) ----------
+  // Sections are separate topics; each step highlights an element (if it's on screen) and explains it.
+  const TOURS = {
+    calendar: [
+      { name: "AI: add & edit", steps: [
+        { title: "Just type what you want", target: "#aiForm", body: "Describe events in plain words: “Lunch with Sam tomorrow at noon”, “move my gym session to Friday 6pm”, “cancel everything on Wednesday”. The AI adds, moves or removes the right events." },
+        { title: "Click an empty time", target: "#weekBody", body: "Click (or drag across) an empty slot. Type a title and Save, or describe it under “Or describe it” and let the AI fill in the details." },
+        { title: "Click an event to change it", target: ".week-grid .event", body: "The popup takes a description too (“make it 2 hours”, “delete it”). Double-click the title or location to edit it, and click the colour square to move it to another calendar." },
+        { title: "Calendars are your tags", target: ".my-cals", body: "Each event takes its calendar's colour. Tick a calendar to show or hide it, + to make one, the pencil to rename or recolour. The AI can do this too (“make a Health tag in green”)." },
+        { title: "Messages from other apps", target: "#hubSync", body: "The red badge counts new messages in the Connection Hub. Click it to jump there with them selected." },
+        { title: "Undo anything", target: null, body: "Ctrl/⌘ + Z undoes and Ctrl + Y redoes every change — AI edits, drags and deletes included." },
+      ] },
+      { name: "Tasks", steps: [
+        { title: "Your to-do list", target: ".tasks", body: "+ adds a task, click one to rename it, and the circle checks it off. You can also tell the AI “remind me to call Mom”." },
+        { title: "Drag a task onto the calendar", target: ".tasks", body: "Drop it on a time for a 1-hour event, or on a day header (the “All day” zones light up) for an all-day item. Dragging it again moves it." },
+        { title: "Check it off on the calendar", target: "#weekBody", body: "Scheduled tasks show a circle on the calendar — tick it and the task is done everywhere." },
+      ] },
+      { name: "Whentomeet", steps: [
+        { title: "Find a time with people", target: "#wtmNew", body: "The people icon next to the mini calendar starts a Whentomeet: pick dates (or days of the week), the hours, a name, then invite people." },
+        { title: "Open one", target: "#wtmList", body: "Your Whentomeets are listed here. Click one to open it — the sidebar becomes its panel and the calendar turns into big blocks." },
+        { title: "Mark your availability", target: null, body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
+        { title: "See the group", target: null, body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person to see just their times." },
+        { title: "Overlap warnings", target: null, body: "If an event later lands on time you marked available, a red warning appears under the Whentomeet with a one-click fix." },
+      ] },
+    ],
+    timeline: [
+      { name: "Reading the timeline", steps: [
+        { title: "Now and next", target: ".tl-node.central .tl-card", body: "The centre is what's happening now, or next. The faded card to the right is the event after it; that day's all-day items sit under the line." },
+        { title: "Time labels", target: "#tlCountdown", body: "Left of the centre: time until it starts. Right of it: the gap until the next event. They turn orange under 15 minutes and red under 5." },
+        { title: "Look around", target: "#tlStage", body: "Drag the line, scroll the mouse wheel, or use the arrow keys to move between events. This mode is view-only." },
+        { title: "Change day", target: ".tl-nav", body: "◀ ▶ step through the days — free days say “Nothing planned”. Now jumps back to the present." },
+      ] },
+      { name: "Work with AI", steps: [
+        { title: "Start working", target: "#tlWork", body: "Work opens an AI chat about the event in the centre. If the day has several items, you pick which one." },
+        { title: "Chat and files", target: "#wkPanel", body: "Ask for notes, an agenda, an email draft… Files the AI writes are attached to the event (📎 attaches your own text files) and show up in Calendar mode too." },
+        { title: "Split view", target: "#menuBtn", body: "☰ (or expand in the chat) puts the chat on the left and turns the timeline vertical. A Work button on another event starts another session." },
+        { title: "Several sessions", target: null, body: "Sessions run side by side — switch with the menu in the chat header. The trash icon deletes a chat, optionally with its files." },
+      ] },
+    ],
+    hub: [
+      { name: "Messages", steps: [
+        { title: "Sources", target: "#hubSources", body: "All sources shows every message, newest first. Click a source to see only it; drag across sources or Shift-click to combine several." },
+        { title: "Add a source", target: "#hubAddSrc", body: "Connect more apps (demo connections — they arrive empty)." },
+        { title: "Select messages", target: "#hubCols", body: "Click to select, drag across several, Shift-click a range, or Select all. New messages are tagged New." },
+      ] },
+      { name: "Construct", steps: [
+        { title: "What to build", target: "#hcBuild", body: "Auto lets the AI decide between events and tasks; or force one kind." },
+        { title: "Construct with AI", target: "#hcFromSel", body: "Turns the selected messages into events and tasks. You can also add one by hand with + Event / + Task." },
+        { title: "Review", target: "#hcList", body: "Check what was built: edit, untick or remove anything that's off." },
+        { title: "Add to calendar", target: "#hcAdd", body: "Ticked events go on your calendar and tasks into your task list. Undo is right there." },
+      ] },
+    ],
+  };
+  const tour = { root: $("tour"), ring: $("tourRing"), card: $("tourCard"), sections: $("tourSections"), title: $("tourTitle"),
+    body: $("tourBody"), count: $("tourCount"), skip: $("tourSkip"), back: $("tourBack"), next: $("tourNext"), sec: 0, step: 0, set: null };
+  function visibleTarget(sel) {
+    if (!sel) return null;
+    const n = [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(x).visibility !== "hidden"; });
+    return n || null;
+  }
+  function showTourStep() {
+    const sec = tour.set[tour.sec], st = sec.steps[tour.step];
+    tour.sections.innerHTML = "";
+    tour.set.forEach((s, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tour-sec" + (i === tour.sec ? " on" : "");
+      b.textContent = `${i + 1}. ${s.name}`;
+      b.addEventListener("click", () => { tour.sec = i; tour.step = 0; showTourStep(); });
+      tour.sections.appendChild(b);
+    });
+    tour.title.textContent = st.title;
+    tour.body.textContent = st.body;
+    tour.count.textContent = `${tour.step + 1} / ${sec.steps.length}`;
+    const lastSec = tour.sec === tour.set.length - 1, lastStep = tour.step === sec.steps.length - 1;
+    tour.skip.hidden = lastSec;
+    tour.back.disabled = tour.sec === 0 && tour.step === 0;
+    tour.next.textContent = lastStep ? (lastSec ? "Done" : `Next: ${tour.set[tour.sec + 1].name}`) : "Next";
+    // Spotlight the element this step is about (when it's on screen).
+    const t = visibleTarget(st.target);
+    tour.root.classList.toggle("dim", !t);
+    tour.ring.hidden = !t;
+    let below = true;
+    if (t) {
+      const r = t.getBoundingClientRect(), pad = 6;
+      const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
+      const w = Math.min(innerWidth - 8, r.right + pad) - left, h = Math.min(innerHeight - 8, r.bottom + pad) - top;
+      Object.assign(tour.ring.style, { top: `${top}px`, left: `${left}px`, width: `${w}px`, height: `${h}px` });
+      below = (r.top + r.bottom) / 2 < innerHeight * 0.55; // card goes on the other half of the screen
+    }
+    tour.card.classList.toggle("at-top", !below);
+  }
+  function openTour() {
+    tour.set = TOURS[mode] || TOURS.calendar;
+    tour.sec = 0; tour.step = 0;
+    hidePopover();
+    tour.root.hidden = false;
+    showTourStep();
+    tour.card.focus();
+  }
+  const closeTour = () => { tour.root.hidden = true; };
+  function tourMove(dir) {
+    const sec = tour.set[tour.sec];
+    if (dir > 0) {
+      if (tour.step < sec.steps.length - 1) tour.step++;
+      else if (tour.sec < tour.set.length - 1) { tour.sec++; tour.step = 0; }
+      else return closeTour();
+    } else {
+      if (tour.step > 0) tour.step--;
+      else if (tour.sec > 0) { tour.sec--; tour.step = tour.set[tour.sec].steps.length - 1; }
+    }
+    showTourStep();
+  }
+  $("helpBtn").addEventListener("click", (e) => { e.stopPropagation(); openTour(); });
+  $("tourClose").addEventListener("click", closeTour);
+  tour.next.addEventListener("click", () => tourMove(1));
+  tour.back.addEventListener("click", () => tourMove(-1));
+  tour.skip.addEventListener("click", () => { if (tour.sec < tour.set.length - 1) { tour.sec++; tour.step = 0; showTourStep(); } });
+  tour.root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTour(); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); tourMove(1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); tourMove(-1); }
+  });
+  window.addEventListener("resize", () => { if (!tour.root.hidden) showTourStep(); });
 
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());

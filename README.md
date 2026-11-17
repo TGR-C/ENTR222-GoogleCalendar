@@ -41,6 +41,13 @@ You can also work with the grid directly:
 The three tabs at the top left switch modes in one click — **Calendar**, **Action Timeline** and
 **Connection Hub**. The current mode shows its icon and name; the others show just their icon.
 
+The **(?)** button at the top right starts a short guided tour of the current mode. Each tour is split into
+sections (Calendar: AI add & edit, Tasks, Whentomeet · Action Timeline: reading the timeline, Work with AI ·
+Connection Hub: messages, Construct) that can be skipped or jumped to. Short tips also appear as tooltips
+when hovering over the relevant area.
+
+New visitors start with sample events, tasks, calendars, and an example Whentomeet ("Pitch practice").
+
 ## Whentomeet (find a time with others)
 
 - The people icon next to the mini calendar starts a new Whentomeet. The mini calendar turns into a short
