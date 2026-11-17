@@ -1,6 +1,6 @@
 Project:ENTR222-Team7-GoogleCalendar
 
-# Natural-language week calendar (prototype)
+# Natural-language calendar (prototype)
 
 A one-week calendar laid out like Google Calendar. The "Create" button is replaced by a
 text box in the left sidebar: you describe what you want ("Lunch with Sam tomorrow at noon",
