@@ -36,6 +36,11 @@ You can also work with the grid directly:
   The AI box can do all of this too ("make a Health tag in green and put the gym in it", "hide Classes").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
 
+## Modes
+
+The three tabs at the top left switch modes in one click — **Calendar**, **Action Timeline** and
+**Connection Hub**. The current mode shows its icon and name; the others show just their icon.
+
 ## Whentomeet (find a time with others)
 
 - The people icon next to the mini calendar starts a new Whentomeet. The mini calendar turns into a short
@@ -56,16 +61,14 @@ You can also work with the grid directly:
 
 ## Connection Hub (messages → events and tasks)
 
-Pick **Connection Hub** from the mode menu (Calendar ▾). It uses made-up demo messages — nothing is really
-connected.
+Click the **Connection Hub** tab (top left). It uses made-up demo messages — nothing is really connected.
 
 - **Sources** (left): Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe. Tick up to
   **3**; each becomes a column of incoming messages, newest at the top, a few per page (‹ › to page,
-  **«** back to page 1). ☰ hides the sources list.
-- **Construct** (the big section): choose **Build: Auto / Events / Tasks**, then
-  1. add events or tasks **by hand** (+ Event / + Task),
-  2. click messages to select them and **✨ construct from the selected messages**, or
-  3. pick whole columns and **✨ read whole columns**.
+  **«** back to page 1). Click messages to select them, or **Select all** at the top of a column to take every
+  message in it. ☰ hides the sources list.
+- **Construct** (the big section on the right): choose **Build: Auto / Events / Tasks**, then either
+  **✨ construct from the selected messages** or add events or tasks **by hand** (+ Event / + Task).
   Constructed items stack like calendar blocks (tasks like task rows); each can be edited (type, title,
   date/time, calendar, location), unticked, or removed. **Add … to calendar** places the ticked events on the
   calendar at their dates and times and puts tasks in the task list (undoable).
@@ -74,7 +77,7 @@ connected.
 
 ## Action Timeline mode
 
-Click **Calendar ▾** (top left) and pick **Action Timeline** for a read-only "what's now / what's next" view:
+Click the **Action Timeline** tab (top left) for a read-only "what's now / what's next" view:
 
 - One horizontal line. The **centre node** is the imminent event (happening now, or the next to start) with
   that day's all-day items underneath; the **right node** is the next event; both edges fade out (the previous event shows faded on the left).

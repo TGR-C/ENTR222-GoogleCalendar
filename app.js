@@ -1839,19 +1839,21 @@
   let mode = (() => {
     try { const v = localStorage.getItem(MODE_KEY); return v === "timeline" || v === "hub" ? v : "calendar"; } catch { return "calendar"; }
   })();
-  const modeEl = { btn: $("modeBtn"), menu: $("modeMenu"), label: $("modeLabel") };
+  const modeEl = { tabs: [...document.querySelectorAll(".mode-tab")] };
 
   function setMode(m) {
     mode = m;
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
-    modeEl.label.textContent = m === "timeline" ? "Action Timeline" : m === "hub" ? "Connection Hub" : "Calendar";
+    modeEl.tabs.forEach((t) => {
+      const on = t.dataset.mode === m;
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+    });
     const menuBtn = $("menuBtn");
     const menuLabel = m === "timeline" ? "AI chat + vertical timeline" : m === "hub" ? "Show or hide sources" : "Main menu";
     menuBtn.setAttribute("aria-label", menuLabel);
     menuBtn.title = menuLabel;
-    modeEl.menu.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === m)));
-    closeModeMenu();
     hidePopover();
     if (quickAddOpen()) closeQuickAdd();
     tlEl.root.hidden = m !== "timeline";
@@ -1860,18 +1862,17 @@
     else if (m === "hub") { if (wtm.active) exitMeet(); setExpanded(false); renderHub(); }
     else { setExpanded(false); render(); }
   }
-  function closeModeMenu() {
-    modeEl.menu.hidden = true;
-    modeEl.btn.setAttribute("aria-expanded", "false");
-  }
-  modeEl.btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    modeEl.menu.hidden = !modeEl.menu.hidden;
-    modeEl.btn.setAttribute("aria-expanded", String(!modeEl.menu.hidden));
-  });
-  modeEl.menu.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-mode]");
-    if (b) { e.stopPropagation(); setMode(b.dataset.mode); }
+  // One click switches mode; ← / → move between the tabs from the keyboard.
+  modeEl.tabs.forEach((t, i) => {
+    t.addEventListener("click", (e) => { e.stopPropagation(); if (t.dataset.mode !== mode) setMode(t.dataset.mode); });
+    t.addEventListener("keydown", (e) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = modeEl.tabs[(i + (e.key === "ArrowRight" ? 1 : modeEl.tabs.length - 1)) % modeEl.tabs.length];
+      setMode(next.dataset.mode);
+      next.focus();
+    });
   });
 
   // ---------- Action Timeline (read-only) ----------
@@ -3729,13 +3730,13 @@
     sources: (Array.isArray(hubSaved.sources) ? hubSaved.sources : ["slack", "email", "canvas"]).filter(srcById).slice(0, HUB_MAX),
     items: Array.isArray(hubSaved.items) ? hubSaved.items : [],
     build: ["auto", "events", "tasks"].includes(hubSaved.build) ? hubSaved.build : "auto",
-    pages: {}, selected: new Set(), colPick: new Set(), busy: false, editing: null, undoable: false,
+    pages: {}, selected: new Set(), busy: false, editing: null, undoable: false,
   };
   const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ sources: hub.sources, items: hub.items, build: hub.build })); } catch { /* ignore */ } };
   const hubEl = {
     root: $("hub"), sources: $("hubSources"), note: $("hubSideNote"), cols: $("hubCols"),
-    build: $("hcBuild"), fromSel: $("hcFromSel"), fromSelLabel: $("hcFromSelLabel"), chips: $("hcColChips"),
-    fromCols: $("hcFromCols"), fromColsLabel: $("hcFromColsLabel"), newEvent: $("hcNewEvent"), newTask: $("hcNewTask"),
+    build: $("hcBuild"), fromSel: $("hcFromSel"), fromSelLabel: $("hcFromSelLabel"),
+    newEvent: $("hcNewEvent"), newTask: $("hcNewTask"),
     status: $("hcStatus"), count: $("hcCount"), all: $("hcAll"), list: $("hcList"), add: $("hcAdd"),
   };
   function msgTime(d) {
@@ -3774,7 +3775,7 @@
       if (!on && full) li.querySelector("label").title = "Up to 3 sources at a time";
       cb.addEventListener("change", () => {
         if (cb.checked && hub.sources.length < HUB_MAX) hub.sources.push(src.id);
-        else if (!cb.checked) { hub.sources = hub.sources.filter((x) => x !== src.id); hub.colPick.delete(src.id); }
+        else if (!cb.checked) hub.sources = hub.sources.filter((x) => x !== src.id);
         saveHub();
         renderHub();
       });
@@ -3800,7 +3801,8 @@
       const col = document.createElement("section");
       col.className = "hub-col";
       col.style.setProperty("--src", src.color);
-      col.innerHTML = `<div class="hub-col-head"><span class="hub-glyph"></span><span class="hub-col-name"></span><span class="hub-col-count"></span></div>
+      col.innerHTML = `<div class="hub-col-head"><span class="hub-glyph"></span><span class="hub-col-name"></span><span class="hub-col-count"></span>
+          <button type="button" class="hub-col-all"></button></div>
         <div class="hub-msgs"></div>
         <div class="hub-pager">
           <button type="button" class="icon-btn small" data-p="first" title="Back to page 1 (newest)" aria-label="First page, newest messages">
@@ -3816,6 +3818,17 @@
       col.querySelector(".hub-col-name").textContent = src.name;
       const sel = msgs.filter((m) => hub.selected.has(m.id)).length;
       col.querySelector(".hub-col-count").textContent = sel ? `${sel} selected` : `${msgs.length} messages`;
+      // Select every message in this column (all pages) in one click.
+      const allBtn = col.querySelector(".hub-col-all");
+      const allOn = sel === msgs.length && msgs.length > 0;
+      allBtn.textContent = allOn ? "Unselect all" : "Select all";
+      allBtn.title = allOn ? `Unselect all ${src.name} messages` : `Select all ${msgs.length} ${src.name} messages (every page)`;
+      allBtn.setAttribute("aria-pressed", String(allOn));
+      allBtn.addEventListener("click", () => {
+        for (const m of msgs) { if (allOn) hub.selected.delete(m.id); else hub.selected.add(m.id); }
+        renderHubCols();
+        renderConstructTools();
+      });
       const list = col.querySelector(".hub-msgs");
       for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) list.appendChild(hubMsgEl(m));
       col.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
@@ -3864,26 +3877,6 @@
     hubEl.fromSelLabel.textContent = n ? `From ${n} selected message${n === 1 ? "" : "s"}` : "From selected messages";
     hubEl.fromSel.disabled = !n || hub.busy;
     hubEl.fromSel.title = n ? "" : "Click messages in the columns to select them";
-    for (const id of [...hub.colPick]) if (!hub.sources.includes(id)) hub.colPick.delete(id);
-    hubEl.chips.innerHTML = `<span class="hc-label">Read</span>`;
-    for (const id of hub.sources) {
-      const src = srcById(id);
-      const c = document.createElement("button");
-      c.type = "button";
-      c.className = "hc-chip";
-      c.setAttribute("aria-pressed", String(hub.colPick.has(id)));
-      c.innerHTML = `<span class="hub-glyph"></span><span></span>`;
-      c.querySelector(".hub-glyph").textContent = src.glyph;
-      c.querySelector(".hub-glyph").style.background = src.color;
-      c.querySelector("span:last-child").textContent = src.name;
-      c.addEventListener("click", () => { if (hub.colPick.has(id)) hub.colPick.delete(id); else hub.colPick.add(id); renderConstructTools(); });
-      hubEl.chips.appendChild(c);
-    }
-    if (!hub.sources.length) hubEl.chips.insertAdjacentHTML("beforeend", `<span class="hc-none">no columns shown</span>`);
-    const k = hub.colPick.size;
-    hubEl.fromColsLabel.textContent = k ? `Read ${k} whole column${k === 1 ? "" : "s"}` : "Read whole columns";
-    hubEl.fromCols.disabled = !k || hub.busy;
-    hubEl.fromCols.title = k ? "" : "Pick one or more columns above";
   }
   function hubStatus(html, isError = false) {
     hubEl.status.innerHTML = html;
@@ -4095,10 +4088,6 @@
     const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
     hubConstruct(msgs, srcs.join(", ")).then(() => { hub.selected.clear(); renderHubCols(); renderConstructTools(); });
   });
-  hubEl.fromCols.addEventListener("click", () => {
-    const ids = [...hub.colPick];
-    hubConstruct(ids.flatMap((id) => hubMsgs[id]), ids.map((id) => srcById(id).name).join(", "));
-  });
   hubEl.newEvent.addEventListener("click", () => newHubItem("event"));
   hubEl.newTask.addEventListener("click", () => newHubItem("task"));
   hubEl.all.addEventListener("click", () => {
@@ -4211,7 +4200,6 @@
     }
     if (!el.popover.contains(e.target)) hidePopover();
     else if (!e.target.closest(".cal-menu")) el.popover.querySelector(".cal-menu")?.remove();
-    if (!modeEl.menu.hidden && !modeEl.menu.contains(e.target)) closeModeMenu();
     if (!el.viewMenu.hidden && !el.viewMenu.contains(e.target)) {
       el.viewMenu.hidden = true;
       el.viewBtn.setAttribute("aria-expanded", "false");
@@ -4222,7 +4210,6 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !cf.root.hidden) { closeConfirm(); return; }
     if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
-    if (e.key === "Escape" && !modeEl.menu.hidden) { closeModeMenu(); return; }
     if (mode === "hub") return; // the hub has no calendar shortcuts
     if (mode === "timeline") {
       // View only: no undo/redo or calendar shortcuts here.
