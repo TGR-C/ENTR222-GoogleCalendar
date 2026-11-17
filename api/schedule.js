@@ -27,18 +27,32 @@ const SCHEMA = {
           end: { type: "string" },
           color: { type: "string", enum: COLORS },
           location: { type: "string" },
+          all_day: { type: "boolean" },
         },
-        required: ["type", "id", "title", "start", "end", "color", "location"],
+        required: ["type", "id", "title", "start", "end", "color", "location", "all_day"],
+        additionalProperties: false,
+      },
+    },
+    task_actions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: ["create", "update", "complete"] },
+          id: { type: "string" },
+          title: { type: "string" },
+        },
+        required: ["type", "id", "title"],
         additionalProperties: false,
       },
     },
     reply: { type: "string" },
   },
-  required: ["actions", "reply"],
+  required: ["actions", "task_actions", "reply"],
   additionalProperties: false,
 };
 
-const SYSTEM = `You are the scheduling engine of a calendar app. Turn the user's request into actions on their events.
+const SYSTEM = `You are the scheduling engine of a calendar app. Turn the user's request into actions on their calendar events ("actions") and on their to-do list ("task_actions").
 
 Rules:
 - All times are the user's local time, formatted exactly "YYYY-MM-DDTHH:MM" (24h).
@@ -49,6 +63,13 @@ Rules:
 - delete: use the existing event's id and copy its other fields.
 - One request can produce several actions (e.g. "move all my Monday meetings to Tuesday").
 - Use location "" when none is known.
+- all_day: true for all-day events (holidays, birthdays, deadlines, trips, anything the user calls "all day"); then start is "YYYY-MM-DDT00:00" of the first day and end is "T00:00" of the day after the last day. Otherwise false.
+
+To-do list ("tasks" in the context; each task has only an id and a title, no time):
+- task create (id ""): the user wants something on their to-do list with no specific time, e.g. "add X to my tasks", "remind me to X", "I need to X", "to-do: X".
+- task update: rename an existing task (use its id).
+- task complete: the user finished it or wants it off the list ("done with X", "check off X", "remove X from my tasks").
+- Something with a specific day or time is a calendar event, not a task. If the user asks to schedule an existing task, create an event with the task's title and leave the task alone unless they say it is done.
 - If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration.
 - If "selected_event_id" is present, the user opened that event and is describing a change to it: "it", "this", or a bare instruction ("move to 3pm", "make it longer", "delete") refers to that event. Only touch other events if the request clearly names them.
 - If the request is ambiguous (e.g. several events match and you can't tell which) or is not about the calendar, return no actions and ask a short question in reply.
@@ -62,7 +83,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { command, events = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
+  const { command, events = [], tasks = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
   if (typeof command !== "string" || !command.trim()) {
     return res.status(400).json({ error: "Missing command" });
   }
@@ -79,9 +100,10 @@ export default async function handler(req, res) {
     ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
       ? { selected_event_id: eventId }
       : {}),
-    events: events.map(({ id, title, start, end, color, location }) => ({
-      id, title, start, end, color, location: location || "",
+    events: events.map(({ id, title, start, end, color, location, allDay }) => ({
+      id, title, start, end, color, location: location || "", all_day: !!allDay,
     })),
+    tasks: (Array.isArray(tasks) ? tasks : []).map(({ id, title }) => ({ id, title })),
   };
 
   try {
@@ -102,7 +124,7 @@ export default async function handler(req, res) {
     });
 
     if (response.stop_reason === "refusal") {
-      return res.status(200).json({ actions: [], reply: "Sorry, I can't help with that request." });
+      return res.status(200).json({ actions: [], task_actions: [], reply: "Sorry, I can't help with that request." });
     }
     if (response.stop_reason === "max_tokens") {
       return res.status(502).json({ error: "The model response was cut off. Try a simpler request." });
@@ -119,7 +141,11 @@ export default async function handler(req, res) {
       return true;
     });
 
-    return res.status(200).json({ actions, reply: parsed.reply || "Done." });
+    const knownTasks = new Set(context.tasks.map((t) => t.id));
+    const taskActions = (parsed.task_actions || []).filter((t) =>
+      t.type === "create" ? !!t.title?.trim() : knownTasks.has(t.id));
+
+    return res.status(200).json({ actions, task_actions: taskActions, reply: parsed.reply || "Done." });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
       return res.status(500).json({ error: "Server API key is missing or invalid." });

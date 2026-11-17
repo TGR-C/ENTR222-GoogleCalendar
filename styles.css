@@ -126,6 +126,68 @@ svg { fill: currentColor; display: block; }
 .mini-grid button.in-week { background: #e8f0fe; color: #1967d2; }
 .mini-grid button.today { background: var(--blue); color: #fff; }
 
+/* ---------- Tasks ---------- */
+.tasks { margin-bottom: 16px; }
+.tasks-head {
+  display: flex; justify-content: space-between; align-items: center; padding-left: 8px;
+  font: 500 14px "Google Sans", Roboto, sans-serif;
+}
+.task-list { list-style: none; margin: 2px 0 0; padding: 0; }
+.task {
+  display: flex; align-items: flex-start; gap: 10px; padding: 6px 8px; border-radius: 4px;
+  font-size: 14px; line-height: 20px; cursor: grab; user-select: none; -webkit-user-select: none;
+}
+.task:hover { background: var(--hover); }
+.task.editing { cursor: default; background: #e8f0fe; }
+.task .ttitle { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.task .tinput {
+  flex: 1; min-width: 0; border: 0; border-bottom: 1px solid var(--blue); outline: 0; background: transparent;
+  font: inherit; color: var(--text); padding: 0; user-select: text; -webkit-user-select: text;
+}
+.tcheck {
+  width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px solid #5f6368; flex-shrink: 0;
+  display: grid; place-items: center; color: transparent; padding: 0; cursor: pointer;
+}
+.tcheck svg { fill: currentColor; }
+.task:not(.new) .tcheck:hover { color: var(--blue); border-color: var(--blue); }
+.task.new .tcheck { cursor: default; }
+.task.done .tcheck { background: var(--blue); border-color: var(--blue); color: #fff; }
+.task.done .ttitle { text-decoration: line-through; color: var(--text-2); }
+.task.done { transition: opacity .3s .05s; opacity: .4; }
+.task.flash { animation: flash 1.2s ease-out; }
+.task-empty, .task-tip { font-size: 12px; color: var(--text-2); padding: 6px 8px 0; }
+.task-empty[hidden] { display: none; }
+.task-tip { padding-top: 4px; }
+
+.task-ghost {
+  position: fixed; z-index: 100; pointer-events: none; background: #fff; border-radius: 6px; padding: 6px 12px;
+  box-shadow: 0 6px 10px 0 rgba(0,0,0,.14), 0 1px 18px 0 rgba(0,0,0,.12), 0 3px 5px -1px rgba(0,0,0,.2);
+  border-left: 4px solid var(--blue); max-width: 260px;
+}
+.task-ghost .tg-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-ghost .tg-where { font-size: 11px; color: var(--blue); }
+.task-ghost.no-target { border-left-color: #bdc1c6; }
+.task-ghost.no-target .tg-where { color: var(--text-2); }
+body.task-dragging, body.task-dragging * { cursor: grabbing !important; }
+
+/* "All day" masks: shown on the all-day drop zones while a task is being dragged */
+body.task-dragging .allday-zone { position: relative; }
+body.task-dragging .allday-zone::after {
+  content: "All day"; position: absolute; inset: 2px; z-index: 8; pointer-events: none;
+  border: 2px dashed #8ab4f8; border-radius: 8px; background: rgba(26,115,232,.07);
+  color: var(--blue); font: 500 11px Roboto, sans-serif; letter-spacing: .3px;
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px;
+}
+body.task-dragging .day-head.allday-zone::after { align-items: flex-start; justify-content: flex-end; padding: 4px 8px 0 0; }
+body.task-dragging .mhead.allday-zone::after { align-items: center; justify-content: flex-end; padding: 0 8px 0 0; }
+body.task-dragging .allday-zone.zone-hot::after {
+  border-color: var(--blue); border-style: solid; background: rgba(26,115,232,.2);
+}
+.event.preview {
+  background: rgba(3,155,229,.85) !important; border: 2px dashed #fff; pointer-events: none; z-index: 15;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+
 .my-cals-head { font: 500 14px "Google Sans", Roboto, sans-serif; padding: 8px; }
 .cal-item { display: flex; align-items: center; gap: 12px; padding: 6px 8px; font-size: 14px; border-radius: 4px; }
 .cal-item:hover { background: var(--hover); }
@@ -154,6 +216,8 @@ svg { fill: currentColor; display: block; }
 }
 .day-head.today .dname { color: var(--blue); }
 .day-head.today .dnum { background: var(--blue); color: #fff; }
+.allday-list { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 2px; min-height: 10px; text-align: left; }
+.allday-list .mchip { margin: 0 6px 0 4px; }
 
 .week-body { flex: 1; overflow-y: auto; position: relative; }
 .week-grid {
@@ -227,8 +291,8 @@ svg { fill: currentColor; display: block; }
   display: flex; flex-direction: column; align-items: stretch; min-height: 0; overflow: hidden; padding-bottom: 2px;
 }
 .mcell.drop { background: #e8f0fe; }
-.mcell .mdate {
-  align-self: center; font-size: 12px; font-weight: 500; min-width: 24px; height: 24px; line-height: 24px;
+.mcell .mhead { display: flex; justify-content: center; flex-shrink: 0; }
+.mcell .mdate { font-size: 12px; font-weight: 500; min-width: 24px; height: 24px; line-height: 24px;
   padding: 0 4px; margin: 4px 0 2px; border-radius: 12px; color: var(--text);
 }
 .mcell .mdate:hover { background: var(--hover); }
@@ -245,6 +309,9 @@ svg { fill: currentColor; display: block; }
 .mchip .mtitle { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .mchip.dragging { background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
 .mchip.flash { animation: flash 1.2s ease-out; }
+.mchip.allday { color: #fff; margin-bottom: 1px; }
+.mchip.allday:hover { filter: brightness(.95); background-image: none; }
+.mchip.allday .mtitle { font-weight: 500; }
 .mchip.mdraft { background: var(--blue); color: #fff; font-weight: 500; cursor: default; }
 .mmore {
   text-align: left; font-size: 12px; font-weight: 500; color: var(--text); padding: 0 8px; margin: 0 4px;

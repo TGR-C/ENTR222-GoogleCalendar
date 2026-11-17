@@ -22,7 +22,9 @@
     aiHints: $("aiHints"), popover: $("popover"), toast: $("toast"), sidebar: $("sidebar"),
     main: $("main"), monthHead: $("monthHead"), monthGrid: $("monthGrid"),
     viewBtn: $("viewBtn"), viewMenu: $("viewMenu"), viewLabel: $("viewLabel"),
+    taskList: $("taskList"), taskAdd: $("taskAdd"), taskEmpty: $("taskEmpty"),
   };
+  const TASK_KEY = "nl-calendar-tasks-v1";
   const VIEW_KEY = "nl-calendar-view";
 
   // ---------- date helpers (all local time) ----------
@@ -54,6 +56,7 @@
 
   // ---------- state ----------
   let events = loadEvents();
+  let tasks = loadTasks();          // [{id, title}] — the sidebar to-do list
   let view = loadView();           // "week" | "month"
   let focus = startOfDay(new Date()); // the date being looked at
   let weekStart = startOfWeek(focus);
@@ -74,6 +77,24 @@
     const seeded = seedEvents();
     try { localStorage.setItem(STORE_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
     return seeded;
+  }
+  function loadTasks() {
+    try {
+      const raw = localStorage.getItem(TASK_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    const seeded = ["Finish pitch deck", "Email professor about project", "Book a team meeting room"]
+      .map((title) => ({ id: uid(), title }));
+    try { localStorage.setItem(TASK_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
+    return seeded;
+  }
+  function saveTasks() {
+    try { localStorage.setItem(TASK_KEY, JSON.stringify(tasks)); } catch { /* ignore */ }
+  }
+  // All-day events are stored as midnight → next midnight (end exclusive) with allDay: true.
+  function allDaySpan(date, days = 1) {
+    const d = startOfDay(date);
+    return { start: toISO(d), end: toISO(addDays(d, days)), allDay: true };
   }
   function loadView() {
     try { return localStorage.getItem(VIEW_KEY) === "month" ? "month" : "week"; } catch { return "week"; }
@@ -98,6 +119,7 @@
       mk("Pitch practice", 5, 10, 0, 11, 30, "banana"),
       mk("Dinner", 5, 19, 0, 20, 30, "flamingo"),
       mk("Hike", 6, 9, 0, 12, 0, "basil", "Trailhead"),
+      { id: uid(), title: "Pitch deck due", ...allDaySpan(addDays(ws, 5)), color: "tomato", location: "" },
     ];
   }
 
@@ -135,10 +157,16 @@
     let html = `<div class="tz">GMT${offset >= 0 ? "+" : ""}${offset}</div>`;
     for (let i = 0; i < 7; i++) {
       const d = addDays(weekStart, i);
-      html += `<div class="day-head${sameDay(d, today) ? " today" : ""}">
-        <div class="dname">${DAY_SHORT[i]}</div><div class="dnum">${d.getDate()}</div></div>`;
+      // The whole column header (name, number, all-day row) is the all-day drop zone.
+      html += `<div class="day-head allday-zone${sameDay(d, today) ? " today" : ""}" data-day="${i}">
+        <div class="dname">${DAY_SHORT[i]}</div><div class="dnum">${d.getDate()}</div><div class="allday-list"></div></div>`;
     }
     el.weekHead.innerHTML = html;
+    el.weekHead.querySelectorAll(".day-head").forEach((head, i) => {
+      const d = addDays(weekStart, i);
+      const list = head.querySelector(".allday-list");
+      eventsOnDay(d).filter(({ ev }) => ev.allDay).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, d)));
+    });
   }
 
   function renderGrid() {
@@ -164,6 +192,7 @@
 
       const dayStart = startOfDay(day), dayEnd = addDays(dayStart, 1);
       const items = events
+        .filter((ev) => !ev.allDay)
         .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
         .filter(({ s, e }) => s < dayEnd && e > dayStart)
         .map((it) => ({
@@ -336,11 +365,11 @@
   // Send a request from a popover; close it and apply the result if anything changed.
   async function popoverRequest(text, ctx) {
     const data = await callSchedule(text, ctx);
-    const actions = data.actions || [];
-    if (!actions.length) return data.reply || "I couldn’t work out a change — try rephrasing.";
+    const actions = data.actions || [], taskActions = data.task_actions || [];
+    if (!actions.length && !taskActions.length) return data.reply || "I couldn’t work out a change — try rephrasing.";
     el.popover.hidden = true;
     if (draft) { draft.busy = false; draft = null; }
-    const changed = applyActions(actions);
+    const changed = applyActions(actions, taskActions);
     setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
     return null;
   }
@@ -355,7 +384,10 @@
       <div class="prow"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div>
         <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>`;
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
-    p.querySelector(".pwhen").textContent = `${dayStr} · ${fmtRange(s, e)}`;
+    const days = Math.round((startOfDay(e) - startOfDay(s)) / 86400000);
+    p.querySelector(".pwhen").textContent = !ev.allDay ? `${dayStr} · ${fmtRange(s, e)}`
+      : days > 1 ? `${dayStr} – ${addDays(e, -1).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`
+      : `${dayStr} · All day`;
     p.querySelector(".ploc").textContent = ev.location || "";
     if (!ev.location) p.querySelector(".ploc").remove();
     p.querySelector("[data-close]").onclick = hidePopover;
@@ -432,6 +464,7 @@
       body: JSON.stringify({
         command,
         events,
+        tasks,
         slot,
         eventId,
         now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
@@ -451,7 +484,7 @@
     setStatus(`<span class="spinner"></span>Working on it…`);
     try {
       const data = await callSchedule(command);
-      const changed = applyActions(data.actions || []);
+      const changed = applyActions(data.actions || [], data.task_actions || []);
       el.aiInput.value = "";
       autosize();
       setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
@@ -598,13 +631,21 @@
     if (suppressClick) { suppressClick = false; e.stopPropagation(); }
   }, true);
 
-  function applyActions(actions) {
-    if (!actions.length) return [];
+  function applyActions(actions, taskActions = []) {
+    if (!actions.length && !taskActions.length) return [];
     pushUndo();
     const changed = [];
     for (const a of actions) {
-      const fields = { title: a.title, start: a.start, end: a.end, color: a.color, location: a.location || "" };
-      if (fields.end && fields.start && parseISO(fields.end) <= parseISO(fields.start)) {
+      const fields = { title: a.title, start: a.start, end: a.end, color: a.color, location: a.location || "", allDay: !!a.all_day };
+      if (fields.allDay && fields.start) {
+        // Normalise to whole days: midnight → midnight after the last day.
+        const s0 = startOfDay(parseISO(fields.start));
+        let e0 = fields.end ? parseISO(fields.end) : addDays(s0, 1);
+        if (e0 <= s0) e0 = addDays(s0, 1);
+        else if (e0.getHours() || e0.getMinutes()) e0 = addDays(startOfDay(e0), 1);
+        fields.start = toISO(s0);
+        fields.end = toISO(e0);
+      } else if (fields.end && fields.start && parseISO(fields.end) <= parseISO(fields.start)) {
         fields.end = toISO(new Date(parseISO(fields.start).getTime() + 3600000));
       }
       if (a.type === "create") {
@@ -619,7 +660,22 @@
         if (i !== -1) { changed.push(events[i]); events.splice(i, 1); }
       }
     }
+    for (const t of taskActions) {
+      if (t.type === "create" && t.title.trim()) {
+        const task = { id: uid(), title: t.title.trim() };
+        tasks.unshift(task);
+        changed.push(task);
+      } else if (t.type === "update") {
+        const task = tasks.find((x) => x.id === t.id);
+        if (task && t.title.trim()) { task.title = t.title.trim(); changed.push(task); }
+      } else if (t.type === "complete") {
+        const i = tasks.findIndex((x) => x.id === t.id);
+        if (i !== -1) { changed.push(tasks[i]); tasks.splice(i, 1); }
+      }
+    }
     saveEvents();
+    saveTasks();
+    renderTasks(new Set(taskActions.filter((t) => t.type !== "complete").map((t) => t.id)));
 
     // Jump to the week of the first created/updated event if it's not visible.
     const target = actions.find((a) => a.type !== "delete");
@@ -638,26 +694,31 @@
 
   // Snapshot-based history. Any new change clears the redo stack.
   const HISTORY_LIMIT = 100;
+  const snapshot = () => JSON.stringify({ events, tasks });
   function pushUndo() {
-    undoStack.push(JSON.stringify(events));
+    undoStack.push(snapshot());
     if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
     redoStack = [];
   }
-  function restore(snapshot) {
-    events = JSON.parse(snapshot);
+  function restore(snap) {
+    const o = JSON.parse(snap);
+    events = o.events;
+    tasks = o.tasks;
     saveEvents();
+    saveTasks();
     hidePopover();
     render();
+    renderTasks();
   }
   function undo() {
     if (!undoStack.length) { setStatus("Nothing to undo."); return; }
-    redoStack.push(JSON.stringify(events));
+    redoStack.push(snapshot());
     restore(undoStack.pop());
     setStatus(`Undone. <button class="redo" type="button">Redo</button>`);
   }
   function redo() {
     if (!redoStack.length) { setStatus("Nothing to redo."); return; }
-    undoStack.push(JSON.stringify(events));
+    undoStack.push(snapshot());
     restore(redoStack.pop());
     setStatus(`Redone. <button class="undo" type="button">Undo</button>`);
   }
@@ -687,7 +748,7 @@
     return events
       .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
       .filter(({ s, e }) => s < de && e > ds)
-      .sort((a, b) => a.s - b.s || b.e - a.e);
+      .sort((a, b) => (b.ev.allDay ? 1 : 0) - (a.ev.allDay ? 1 : 0) || a.s - b.s || b.e - a.e);
   }
 
   function monthRange() {
@@ -699,9 +760,17 @@
 
   function chipEl(ev, s, day) {
     const c = document.createElement("div");
-    c.className = "mchip" + (flashIds.has(ev.id) ? " flash" : "");
+    c.className = "mchip" + (ev.allDay ? " allday" : "") + (flashIds.has(ev.id) ? " flash" : "");
     c.dataset.id = ev.id;
     c.dataset.date = dayKey(day);
+    if (ev.allDay) {
+      // Filled bar, like Google's all-day events.
+      c.style.background = COLORS[ev.color] || COLORS.peacock;
+      if (ev.color === "banana") c.style.color = "#202124";
+      c.innerHTML = `<span class="mtitle"></span>`;
+      c.querySelector(".mtitle").textContent = ev.title || "(No title)";
+      return c;
+    }
     c.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
     c.querySelector(".mdot").style.background = COLORS[ev.color] || COLORS.peacock;
     // A multi-day event shows its start time only on the first day.
@@ -725,7 +794,7 @@
       cell.className = "mcell" + (d.getMonth() !== monthStart.getMonth() ? " other" : "");
       cell.dataset.date = dayKey(d);
       const label = d.getDate() === 1 ? `${MONTHS[d.getMonth()].slice(0, 3)} 1` : d.getDate();
-      cell.innerHTML = `<button class="mdate${sameDay(d, today) ? " today" : ""}" title="Open this week">${label}</button><div class="mlist"></div>`;
+      cell.innerHTML = `<div class="mhead allday-zone"><button class="mdate${sameDay(d, today) ? " today" : ""}" title="Open this week">${label}</button></div><div class="mlist"></div>`;
       grid.appendChild(cell);
       cells.push({ cell, d });
     }
@@ -850,6 +919,271 @@
   el.monthGrid.addEventListener("pointerup", (e) => endMonthDrag(e, false));
   el.monthGrid.addEventListener("pointercancel", (e) => endMonthDrag(e, true));
 
+  // ---------- task list (sidebar) ----------
+  const CHECK_SVG = `<svg viewBox="0 0 24 24" width="14" height="14"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+
+  function renderTasks(flash = new Set()) {
+    el.taskList.innerHTML = "";
+    for (const t of tasks) {
+      const li = document.createElement("li");
+      li.className = "task" + (flash.has(t.id) ? " flash" : "");
+      li.dataset.id = t.id;
+      li.innerHTML = `<button class="tcheck" type="button" aria-label="Mark complete" title="Mark complete">${CHECK_SVG}</button><span class="ttitle"></span>`;
+      li.querySelector(".ttitle").textContent = t.title;
+      li.title = "Click to edit · drag onto the calendar to schedule";
+      el.taskList.appendChild(li);
+    }
+    el.taskEmpty.hidden = tasks.length > 0;
+  }
+
+  // Inline editor for a task title. For a new task, `li` is a fresh row not yet in `tasks`.
+  function editTask(li, isNew = false) {
+    if (!li || li.querySelector(".tinput")) return;
+    const task = tasks.find((t) => t.id === li.dataset.id);
+    const span = li.querySelector(".ttitle");
+    const input = document.createElement("input");
+    input.className = "tinput";
+    input.type = "text";
+    input.maxLength = 200;
+    input.placeholder = "Title";
+    input.value = task ? task.title : "";
+    input.setAttribute("aria-label", "Task title");
+    span.replaceWith(input);
+    li.classList.add("editing");
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const val = input.value.trim();
+      if (save && isNew && val) {
+        pushUndo();
+        tasks.unshift({ id: li.dataset.id, title: val });
+        saveTasks();
+      } else if (save && task && val && val !== task.title) {
+        pushUndo();
+        task.title = val;
+        saveTasks();
+      }
+      renderTasks();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+
+  function addTask() {
+    const existing = el.taskList.querySelector("li.new .tinput");
+    if (existing) { existing.focus(); return; }
+    const li = document.createElement("li");
+    li.className = "task new";
+    li.dataset.id = uid();
+    li.innerHTML = `<span class="tcheck" aria-hidden="true"></span><span class="ttitle"></span>`;
+    el.taskList.prepend(li);
+    el.taskEmpty.hidden = true;
+    editTask(li, true);
+  }
+
+  function completeTask(id) {
+    const li = el.taskList.querySelector(`li[data-id="${id}"]`);
+    const task = tasks.find((t) => t.id === id);
+    if (!task || !li || li.classList.contains("done")) return;
+    li.classList.add("done"); // show the check + strike-through briefly, like Google Tasks
+    setTimeout(() => {
+      pushUndo();
+      tasks = tasks.filter((t) => t.id !== id);
+      saveTasks();
+      renderTasks();
+      setStatus(`Completed “${escapeHTML(task.title)}”. <button class="undo" type="button">Undo</button>`);
+    }, 350);
+  }
+
+  // ----- drag a task onto the calendar -----
+  let tdrag = null;
+  const shortDate = (d) => d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+
+  el.taskList.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || tdrag || drag) return;
+    const li = e.target.closest("li.task");
+    if (!li || li.classList.contains("new") || li.classList.contains("editing")) return;
+    if (e.target.closest(".tcheck")) return;
+    const task = tasks.find((t) => t.id === li.dataset.id);
+    if (!task) return;
+    tdrag = { task, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: false, target: null };
+    el.taskList.setPointerCapture(e.pointerId);
+  });
+
+  el.taskList.addEventListener("pointermove", (e) => {
+    if (!tdrag) return;
+    tdrag.x = e.clientX; tdrag.y = e.clientY;
+    if (!tdrag.moved) {
+      if (Math.hypot(e.clientX - tdrag.x0, e.clientY - tdrag.y0) < 5) return;
+      tdrag.moved = true;
+      hidePopover();
+      tdrag.ghost = document.createElement("div");
+      tdrag.ghost.className = "task-ghost";
+      tdrag.ghost.innerHTML = `<div class="tg-title"></div><div class="tg-where"></div>`;
+      tdrag.ghost.querySelector(".tg-title").textContent = tdrag.task.title;
+      document.body.appendChild(tdrag.ghost);
+      document.body.classList.add("task-dragging"); // shows the "All day" masks
+      autoScroll();
+    }
+    updateTaskTarget();
+  });
+
+  // Work out what dropping at the current pointer position would create, and preview it.
+  function updateTaskTarget() {
+    const t = tdrag;
+    t.ghost.style.left = `${t.x + 14}px`;
+    t.ghost.style.top = `${t.y + 10}px`;
+    document.querySelectorAll(".zone-hot").forEach((n) => n.classList.remove("zone-hot"));
+    document.querySelectorAll(".mcell.drop").forEach((n) => n.classList.remove("drop"));
+    document.querySelectorAll(".event.preview").forEach((n) => n.remove());
+    t.target = null;
+
+    const n = document.elementFromPoint(t.x, t.y);
+    const zone = n && n.closest(".allday-zone");
+    const col = n && n.closest(".day-col");
+    const cell = n && n.closest(".mcell");
+    if (zone) {
+      const date = view === "week" ? addDays(weekStart, Number(zone.dataset.day)) : parseISO(zone.closest(".mcell").dataset.date);
+      zone.classList.add("zone-hot");
+      t.target = { allDay: true, date };
+    } else if (view === "week" && col) {
+      const dayIdx = Number(col.dataset.day);
+      const startMin = clamp(snap(minuteAtY(t.y), Math.floor), 0, 1440 - 60);
+      const start = atMinute(dayIdx, startMin);
+      t.target = { allDay: false, start };
+      const pv = document.createElement("div");
+      pv.className = "event preview";
+      pv.innerHTML = `<div class="etitle"></div><div class="etime"></div>`;
+      pv.querySelector(".etitle").textContent = t.task.title;
+      pv.style.left = "1px";
+      pv.style.width = "calc(100% - 10px)";
+      setBlockTime(pv, start, new Date(start.getTime() + 3600000));
+      col.appendChild(pv);
+    } else if (view === "month" && cell) {
+      cell.classList.add("drop");
+      const d = parseISO(cell.dataset.date);
+      t.target = { allDay: false, start: new Date(d.getTime() + 9 * 3600000) };
+    }
+    const where = t.ghost.querySelector(".tg-where");
+    where.textContent = !t.target ? "Drop on the calendar"
+      : t.target.allDay ? `All day · ${shortDate(t.target.date)}`
+      : `${shortDate(t.target.start)}, ${fmtRange(t.target.start, new Date(t.target.start.getTime() + 3600000))}`;
+    t.ghost.classList.toggle("no-target", !t.target);
+  }
+
+  // Scroll the week grid while dragging near its top or bottom edge.
+  function autoScroll() {
+    if (!tdrag || !tdrag.moved) return;
+    if (view === "week") {
+      const r = el.weekBody.getBoundingClientRect();
+      const inX = tdrag.x > r.left && tdrag.x < r.right;
+      let dy = 0;
+      if (inX && tdrag.y > r.top - 10 && tdrag.y < r.top + 40) dy = -12;
+      else if (inX && tdrag.y > r.bottom - 40 && tdrag.y < r.bottom + 10) dy = 12;
+      if (dy) {
+        el.weekBody.scrollTop += dy;
+        updateTaskTarget();
+      }
+    }
+    requestAnimationFrame(autoScroll);
+  }
+
+  function endTaskDrag(e, cancelled) {
+    if (!tdrag) return;
+    const t = tdrag;
+    tdrag = null;
+    try { el.taskList.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (t.ghost) t.ghost.remove();
+    document.body.classList.remove("task-dragging");
+    document.querySelectorAll(".zone-hot").forEach((n) => n.classList.remove("zone-hot"));
+    document.querySelectorAll(".mcell.drop").forEach((n) => n.classList.remove("drop"));
+    document.querySelectorAll(".event.preview").forEach((n) => n.remove());
+
+    if (!t.moved) {
+      // A plain click: edit the title. Re-find the row in case a blur re-rendered the list.
+      if (!cancelled) editTask(el.taskList.querySelector(`li[data-id="${t.task.id}"]`));
+      return;
+    }
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+    if (cancelled || !t.target) return;
+
+    const ev = { id: uid(), title: t.task.title, color: "peacock", location: "" };
+    if (t.target.allDay) Object.assign(ev, allDaySpan(t.target.date));
+    else Object.assign(ev, { start: toISO(t.target.start), end: toISO(new Date(t.target.start.getTime() + 3600000)) });
+    pushUndo();
+    events.push(ev);
+    saveEvents();
+    flashIds = new Set([ev.id]);
+    render();
+    flashIds = new Set();
+    const when = t.target.allDay ? `${shortDate(t.target.date)} (all day)` : `${shortDate(t.target.start)} at ${fmtTime(t.target.start)}`;
+    setStatus(`Scheduled “${escapeHTML(ev.title)}” for ${escapeHTML(when)}. <button class="undo" type="button">Undo</button>`);
+  }
+  el.taskList.addEventListener("pointerup", (e) => endTaskDrag(e, false));
+  el.taskList.addEventListener("pointercancel", (e) => endTaskDrag(e, true));
+  el.taskList.addEventListener("click", (e) => {
+    const c = e.target.closest("button.tcheck");
+    if (c) completeTask(c.closest("li").dataset.id);
+  });
+  el.taskAdd.addEventListener("click", (e) => { e.stopPropagation(); addTask(); });
+
+  // ----- all-day events in the week header: click for details, drag to another day -----
+  let hdrag = null;
+  el.weekHead.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || drag || tdrag) return;
+    const chip = e.target.closest(".mchip");
+    if (!chip) return;
+    const ev = events.find((x) => x.id === chip.dataset.id);
+    if (!ev) return;
+    hdrag = { ev, chip, from: chip.dataset.date, x0: e.clientX, y0: e.clientY, moved: false, over: null };
+    el.weekHead.setPointerCapture(e.pointerId);
+  });
+  el.weekHead.addEventListener("pointermove", (e) => {
+    if (!hdrag) return;
+    if (!hdrag.moved) {
+      if (Math.hypot(e.clientX - hdrag.x0, e.clientY - hdrag.y0) < 4) return;
+      hdrag.moved = true;
+      hidePopover();
+      hdrag.chip.classList.add("dragging");
+    }
+    const n = document.elementFromPoint(e.clientX, e.clientY);
+    const head = n && n.closest(".day-head");
+    if (head && head !== hdrag.over) {
+      hdrag.over = head;
+      head.querySelector(".allday-list").prepend(hdrag.chip);
+    }
+  });
+  function endHeadDrag(e, cancelled) {
+    if (!hdrag) return;
+    const d = hdrag;
+    hdrag = null;
+    try { el.weekHead.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+    if (!d.moved) { if (!cancelled) showPopover(d.ev, d.chip); return; }
+    const target = d.over ? addDays(weekStart, Number(d.over.dataset.day)) : parseISO(d.from);
+    const shift = Math.round((startOfDay(target) - parseISO(d.from)) / 86400000);
+    if (cancelled || !shift) { renderHeader(); return; }
+    pushUndo();
+    d.ev.start = toISO(addDays(parseISO(d.ev.start), shift));
+    d.ev.end = toISO(addDays(parseISO(d.ev.end), shift));
+    saveEvents();
+    flashIds = new Set([d.ev.id]);
+    render();
+    flashIds = new Set();
+    setStatus(`Moved “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
+  el.weekHead.addEventListener("pointerup", (e) => endHeadDrag(e, false));
+  el.weekHead.addEventListener("pointercancel", (e) => endHeadDrag(e, true));
+
   // ---------- navigation ----------
   function goToDate(d, doRender = true) {
     focus = startOfDay(d);
@@ -941,7 +1275,7 @@
       return;
     }
     // Inside a text box, keep the browser's own text undo/redo and typing.
-    if (isTyping(e.target) || drag) return;
+    if (isTyping(e.target) || dragging()) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
     if (mod && !e.altKey) {
@@ -957,9 +1291,11 @@
     else if (key === "j" || key === "n") step(1);
     else if (key === "k" || key === "p") step(-1);
   });
-  window.addEventListener("resize", () => { if (!drag) refreshMain(); });
-  setInterval(() => { if (!drag && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
+  const dragging = () => drag || tdrag || hdrag;
+  window.addEventListener("resize", () => { if (!dragging()) refreshMain(); });
+  setInterval(() => { if (!dragging() && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
+  renderTasks();
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();

@@ -77,6 +77,18 @@
         <div class="mini-grid" id="miniGrid"></div>
       </div>
 
+      <section class="tasks" aria-label="Tasks">
+        <div class="tasks-head">
+          <span>Tasks</span>
+          <button class="icon-btn small" id="taskAdd" aria-label="Add a task" title="Add a task">
+            <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+        </div>
+        <ul class="task-list" id="taskList"></ul>
+        <div class="task-empty" id="taskEmpty" hidden>No tasks. Add one with + or the box above.</div>
+        <div class="task-tip">Drag a task onto the calendar to schedule it.</div>
+      </section>
+
       <div class="my-cals">
         <div class="my-cals-head">My calendars</div>
         <label class="cal-item"><span class="check" style="--c:#039be5"></span>Personal</label>

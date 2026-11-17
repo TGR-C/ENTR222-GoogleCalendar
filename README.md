@@ -17,6 +17,13 @@ You can also work with the grid directly:
 - **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
   day to create one (include a time in the description), click "N more" to see a full day, click a date
   number to open that week.
+- **Tasks** (sidebar, under the mini calendar): `+` adds a task, clicking a task edits it, the circle
+  completes it. The AI box can manage tasks too ("remind me to call mom", "done with the pitch deck").
+- **Drag a task onto the calendar** to schedule it: on the week grid it becomes a 1-hour event at that
+  time; on a day in month view, 9–10am that day. Drop it on a day header (week) or the date strip
+  (month) — highlighted "All day" while dragging — to make an all-day event. The task stays in the list.
+- **All-day events** appear under the day headers (week) and as filled bars (month); they can be
+  dragged to another day and created by the AI ("holiday on Friday").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
 
 Keyboard shortcuts (ignored while typing in a text box):
@@ -55,4 +62,4 @@ Opening `index.html` directly works for the layout, but the input box needs the 
 
 - No auth / rate limiting: anyone with the public link can spend API credits.
 - Events are per-browser only (no shared database).
-- No all-day events or recurring events.
+- No recurring events. Dragging tasks needs a mouse (not touch).
