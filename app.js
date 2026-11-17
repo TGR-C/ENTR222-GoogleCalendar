@@ -2022,10 +2022,15 @@
       && parseISO(ev.start) < de && parseISO(ev.end) > ds);
 
     // Nodes near the viewport (a few extra on each side so dragging has something to show).
+    // On the left, only events from the same day or the day before are shown; if the day before is
+    // free, earlier events stay hidden (they only appear while dragging, so moving back stays smooth).
+    const prevDay = addDays(startOfDay(refDay), -1);
     for (let i = Math.max(0, tl.focus - 3); i <= Math.min(seq.length - 1, tl.focus + 4); i++) {
       const x = cx + (i - tl.focus) * tl.spacing;
       const it = seq[i];
-      tlEl.track.appendChild(it.virtual ? tlEmptyNode(it, x, i === tl.focus, allDay.length > 0) : tlNode(it, x, i === tl.focus, refDay));
+      const node = it.virtual ? tlEmptyNode(it, x, i === tl.focus, allDay.length > 0) : tlNode(it, x, i === tl.focus, refDay);
+      if (i < tl.focus && startOfDay(it.s) < prevDay) node.classList.add("tl-far");
+      tlEl.track.appendChild(node);
       // Gap labels from the central node onward (left of centre is the countdown).
       const nx = seq[i + 1];
       if (i >= tl.focus && nx && !it.virtual && !nx.virtual) tlEl.track.appendChild(tlGap(it, nx, x + tl.spacing / 2));
