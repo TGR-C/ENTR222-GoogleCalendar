@@ -2024,9 +2024,16 @@
     tlEl.track.style.transition = "none";
     tlEl.track.style.transform = "";
     tlEl.empty.hidden = true;
-    tlEl.now.hidden = tl.auto;
     const seq = tl.seq;
     const focusIt = seq[tl.focus];
+    // Back on the imminent event (by any route)? Then we're "at now": hide the Now button and
+    // resume following the clock.
+    if (!tl.auto && focusIt) {
+      const nowKey = tl.items.length ? tl.items[imminentIndex(tl.items)].ev.id : "virtual";
+      const atNow = seqKey(focusIt) === nowKey && (nowKey !== "virtual" || sameDay(focusIt.s, new Date()));
+      if (atNow) { tl.auto = true; tl.emptyDay = tl.items.length ? null : tl.emptyDay; }
+    }
+    tlEl.now.hidden = tl.auto;
     const refDay = focusIt ? focusIt.s : new Date();
 
     // Day label (days can be stepped one at a time, including days with nothing planned).
