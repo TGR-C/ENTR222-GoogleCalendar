@@ -447,7 +447,7 @@ body[data-mode="timeline"] .layout,
 body[data-mode="timeline"] .topbar-center,
 body[data-mode="timeline"] .view-switch,
 body[data-mode="timeline"] .quick-add { display: none !important; }
-body[data-mode="timeline"] .topbar-left { width: auto; padding-left: 8px; }
+body[data-mode="timeline"] .topbar-left { width: auto; }
 body[data-mode="timeline"] .topbar-right { margin-left: auto; }
 .timeline[hidden] { display: none; }
 .timeline { height: calc(100% - 64px); position: relative; overflow: hidden; background: #fff; }
