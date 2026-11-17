@@ -56,6 +56,21 @@ when hovering over the relevant area.
 
 New visitors start with sample events, tasks, calendars, and an example Whentomeet ("Pitch practice").
 
+## Search and ask
+
+Click the magnifier or press **/** to search titles, locations and calendar names, including hidden
+calendars. Results show upcoming events first, then past events (up to eight). Use arrow keys and Enter
+to open a result; Escape closes search. Month/year views switch to week when opening an event.
+
+The first row, **✨ Ask**, or Enter without a highlighted result sends a read-only question to
+`/api/ask`. Answers include clickable event and free-time chips; free-time chips open a draft for review.
+To change events with AI, use **Add or edit events**. The server requires `ANTHROPIC_API_KEY`.
+Questions include up to 300 events overlapping the past 14 days through the next 60 days. Availability
+is computed locally for today through 14 days ahead, 08:00–22:00, across all calendars; all-day events
+are ignored. Overlapping busy times are merged, gaps under 15 minutes are omitted, and today's start
+is rounded up to the next quarter hour. Local wall-clock boundaries preserve daylight-saving dates.
+The search overlay and answer panel use theme tokens and move below the toolbar on phones.
+
 ## Whentomeet (find a time with others)
 
 - The people icon next to the mini calendar starts a new Whentomeet. The mini calendar turns into a short
@@ -73,6 +88,30 @@ New visitors start with sample events, tasks, calendars, and an example Whentome
 - **Group availability** shows only the overlap (greener = more people free); click a time to see who is
   and isn't available. Click a person to see just their availability.
 - Close with the ✕ or by clicking the top line again. Everything is stored in the browser.
+
+## Conflicts
+
+- Whenever a timed event is created or its time changes (AI create/update, dragging or resizing in Week/Day,
+  moving a timed event to another day in Month, dropping a task on the time grid, Save in the create popover,
+  or adding events from the Connection Hub), it is checked against your other timed events. Hidden calendars
+  count (busy is busy); all-day events, finished tasks, other entries of the same task and the help tour's
+  examples don't. Booking pages only ever offer free times, so they aren't checked.
+- An overlap brings up a card near the top of the calendar: "“Lunch with Sam” overlaps “Project sync”
+  (11am – 12pm, Startup project)". Several overlaps are listed; several new events from one AI reply are
+  asked about one after another ("1 of 2"). The choices:
+  - **Keep both** (also Esc): leave things as they are.
+  - **Move “<new>” to <time>**: its next free slot of the same length, in 15-minute steps from where it is,
+    same day first, then up to 14 days ahead, between 8am and 10pm.
+  - **Reschedule “<other>” to <time>** (only when it overlaps exactly one event): moves the existing event
+    to its next free slot instead. If it has guests (e.g. the person who booked it through a booking page,
+    from its "Booking details.txt"), the status line says "Sent an update to <names> (demo, no email is sent)".
+  - **Cancel**: undoes the change that caused the overlap.
+  Every move can be undone (Undo in the status line, or Ctrl+Z).
+- **Don't ask again: always move the new event**, ticked when you pick the move, saves
+  `nl-calendar-conflicts = "auto"`. From then on the new event moves by itself and the status line says
+  "Moved “X” to <time> because it overlapped “Y”. Undo · Ask me next time" ("Ask me next time" turns it
+  off). If there's no free slot within 14 days it asks instead.
+- The card closes when you switch modes or open a popover (counts as keep both).
 
 ## Booking pages (book time with me)
 

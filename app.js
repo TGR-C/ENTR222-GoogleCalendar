@@ -783,6 +783,7 @@
       render();
       flashIds = new Set();
       setStatus(`Created “${escapeHTML(created.title)}”. <button class="undo" type="button">Undo</button>`);
+      checkConflicts([created]);
     });
     for (const input of [titleInput, locInput]) {
       input.addEventListener("keydown", (ev) => {
@@ -1017,6 +1018,7 @@
     render();
     flashIds = new Set();
     setStatus(`${d.mode === "move" ? "Moved" : "Resized"} “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
+    checkConflicts([d.ev]);
   }
   el.weekGrid.addEventListener("pointerup", (e) => endDrag(e, false));
   el.weekGrid.addEventListener("pointercancel", (e) => endDrag(e, true));
@@ -1030,6 +1032,7 @@
     const savedRedo = redoStack;
     pushUndo();
     const changed = [];
+    const timed = []; // events created or re-timed: checked for overlaps afterwards
     // Calendars first, so events in this same reply can refer to a newly created calendar by name.
     for (const c of calActions) {
       const color = COLORS[c.color] ? c.color : "peacock";
@@ -1075,10 +1078,13 @@
         const ev = { id: uid(), ...fields };
         events.push(ev);
         changed.push(ev);
+        timed.push(ev);
       } else if (a.type === "update") {
         const ev = events.find((x) => x.id === a.id);
         if (ev) {
+          const was = `${ev.start}|${ev.end}|${!!ev.allDay}`;
           Object.assign(ev, fields);
+          if (`${ev.start}|${ev.end}|${!!ev.allDay}` !== was) timed.push(ev);
           // A task placed on the calendar shares its title with the task (and its other entries).
           if (ev.taskId && ev.title && ev.title.trim()) renameTask(ev.taskId, ev.title);
           changed.push(ev);
@@ -1130,6 +1136,7 @@
     flashIds = new Set(changed.map((e) => e.id));
     render();
     flashIds = new Set();
+    checkConflicts(timed.filter((ev) => events.includes(ev)));
     return changed;
   }
 
@@ -1372,6 +1379,7 @@
     render();
     flashIds = new Set();
     setStatus(`Moved “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
+    checkConflicts([d.ev]);
   }
   el.monthGrid.addEventListener("pointerup", (e) => endMonthDrag(e, false));
   el.monthGrid.addEventListener("pointercancel", (e) => endMonthDrag(e, true));
@@ -1734,6 +1742,7 @@
     flashIds = new Set();
     const when = t.target.allDay ? `${shortDate(t.target.date)} (all day)` : `${shortDate(t.target.start)} at ${fmtTime(t.target.start)}`;
     setStatus(`${existing ? "Moved" : "Scheduled"} “${escapeHTML(ev.title)}” ${existing ? "to" : "for"} ${escapeHTML(when)}. <button class="undo" type="button">Undo</button>`);
+    checkConflicts([ev]);
   }
   el.taskList.addEventListener("pointerup", (e) => endTaskDrag(e, false));
   el.taskList.addEventListener("pointercancel", (e) => endTaskDrag(e, true));
@@ -4538,11 +4547,14 @@
     if (!kept.length) return;
     pushUndo();
     let nE = 0, nT = 0;
+    const added = [];
     for (const it of kept) {
       const title = it.title || "(No title)";
       if (it.type === "task") { tasks.unshift({ id: uid(), title }); nT++; }
       else {
-        events.push({ id: uid(), title, start: it.start, end: it.end, allDay: !!it.allDay, cal: calById(it.cal) ? it.cal : defaultCalId(), location: it.location || "" });
+        const ev = { id: uid(), title, start: it.start, end: it.end, allDay: !!it.allDay, cal: calById(it.cal) ? it.cal : defaultCalId(), location: it.location || "" };
+        events.push(ev);
+        added.push(ev);
         nE++;
       }
     }
@@ -4555,6 +4567,7 @@
     renderConstructList();
     const parts = [nE && `${nE} event${nE === 1 ? "" : "s"} to your calendar`, nT && `${nT} task${nT === 1 ? "" : "s"} to your task list`].filter(Boolean);
     hubStatus(`Added ${parts.join(" and ")}. <button type="button" class="hc-link" data-undo>Undo</button>`);
+    checkConflicts(added);
   }
 
   // ----- add a source (demo) -----
@@ -4641,6 +4654,168 @@
   hubEl.status.addEventListener("click", (e) => {
     if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
   });
+
+  // ---------- Search and ask ----------
+  const searchUI = { root: $("calendarSearch"), button: $("searchBtn"), input: $("searchInput"),
+    dropdown: $("searchDropdown"), list: $("searchResults"), answer: $("searchAnswer") };
+  let searchRows = [], searchActive = -1, searchRequest = null;
+
+  // Local wall-clock boundaries keep these windows correct across DST transitions.
+  function searchFreeGaps(sourceEvents, now = new Date()) {
+    const timed = sourceEvents.filter((ev) => !ev.allDay).map((ev) => [parseISO(ev.start), parseISO(ev.end)])
+      .filter(([s, e]) => Number.isFinite(+s) && Number.isFinite(+e) && e > s);
+    return Array.from({ length: 15 }, (_, offset) => {
+      const day = addDays(startOfDay(now), offset);
+      const at = (h, m = 0) => { const d = startOfDay(day); d.setHours(h, m, 0, 0); return d; };
+      let lower = at(8), upper = at(22);
+      if (offset === 0) {
+        const rounded = new Date(now);
+        rounded.setMinutes(Math.ceil((now.getMinutes() + (now.getSeconds() || now.getMilliseconds() ? 1 : 0)) / 15) * 15, 0, 0);
+        if (rounded > lower) lower = rounded;
+      }
+      const busy = timed.filter(([s, e]) => s < upper && e > lower)
+        .map(([s, e]) => [new Date(Math.max(+s, +lower)), new Date(Math.min(+e, +upper))])
+        .sort((a, b) => a[0] - b[0]);
+      const gaps = [];
+      let cursor = lower;
+      const gap = (start, end) => { if (end - start >= 15 * 60000) gaps.push({ start: toISO(start), end: toISO(end) }); };
+      for (const [s, e] of busy) { if (s > cursor) gap(cursor, s); if (e > cursor) cursor = e; }
+      gap(cursor, upper);
+      return { date: dayKey(day), weekday: day.toLocaleDateString("en-US", { weekday: "long" }), gaps };
+    });
+  }
+  function openSearch() {
+    searchUI.root.hidden = false;
+    searchUI.button.setAttribute("aria-expanded", "true");
+    searchUI.input.focus();
+    renderSearch();
+  }
+  function closeSearch() {
+    searchRequest?.abort(); searchRequest = null;
+    searchUI.root.hidden = true;
+    searchUI.button.setAttribute("aria-expanded", "false");
+    searchUI.input.setAttribute("aria-expanded", "false");
+    searchUI.input.removeAttribute("aria-activedescendant");
+    searchUI.button.focus();
+  }
+  function searchWhen(ev) {
+    const start = parseISO(ev.start);
+    return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · ${ev.allDay ? "All day" : fmtRange(start, parseISO(ev.end))}`;
+  }
+  function searchNavigate(start) {
+    closeSearch();
+    if (mode !== "calendar") setMode("calendar");
+    if (wtm.active) exitMeet();
+    if (!timeView()) setView("week");
+    goToDate(parseISO(start));
+    el.weekBody.scrollTop = Math.max(0, (parseISO(start).getHours() - 1) * hourPx());
+  }
+  function searchOpenEvent(id) {
+    const ev = events.find((item) => item.id === id);
+    if (!ev) return;
+    searchNavigate(ev.start);
+    const anchor = [...el.weekGrid.querySelectorAll("[data-id]")].find((node) => node.dataset.id === id) || searchUI.button;
+    showPopover(ev, anchor);
+  }
+  function searchOpenSlot(range) {
+    searchNavigate(range.start);
+    draft = { start: range.start, end: range.end };
+    renderGrid();
+    showCreatePopover();
+  }
+  function highlightSearch(index) {
+    searchActive = index;
+    [...searchUI.list.children].forEach((row, i) => row.setAttribute("aria-selected", String(i === index)));
+    if (index < 0) searchUI.input.removeAttribute("aria-activedescendant");
+    else {
+      searchUI.input.setAttribute("aria-activedescendant", `search-option-${index}`);
+      searchUI.list.children[index]?.scrollIntoView({ block: "nearest" });
+    }
+  }
+  function renderSearch() {
+    const query = searchUI.input.value.trim(), q = query.toLocaleLowerCase(), now = new Date();
+    searchUI.list.replaceChildren(); searchUI.answer.hidden = true;
+    searchUI.answer.replaceChildren(); highlightSearch(-1);
+    searchUI.dropdown.hidden = !query;
+    searchUI.input.setAttribute("aria-expanded", String(!!query));
+    if (!query) { searchRows = []; return; }
+    const matches = events.filter((ev) => [ev.title, ev.location, calOf(ev)?.name].some((v) => String(v || "").toLocaleLowerCase().includes(q)))
+      .sort((a, b) => {
+        const aPast = parseISO(a.end) <= now, bPast = parseISO(b.end) <= now;
+        return aPast !== bPast ? (aPast ? 1 : -1) : aPast ? parseISO(b.start) - parseISO(a.start) : parseISO(a.start) - parseISO(b.start);
+      }).slice(0, 8);
+    searchRows = [null, ...matches];
+    searchRows.forEach((ev, i) => {
+      const row = document.createElement("div");
+      row.className = "search-option"; row.id = `search-option-${i}`;
+      row.setAttribute("role", "option"); row.setAttribute("aria-selected", "false");
+      if (ev) {
+        const dot = document.createElement("span"); dot.className = "search-dot"; dot.style.background = colorOf(ev); row.append(dot);
+        const label = document.createElement("span"); label.textContent = ev.title;
+        const detail = document.createElement("span"); detail.className = "search-detail";
+        detail.textContent = `${searchWhen(ev)} · ${ev.location || calOf(ev)?.name || ""}`;
+        label.append(detail); row.append(label);
+      } else row.textContent = `✨ Ask: ${query}`;
+      row.addEventListener("mousedown", (e) => e.preventDefault());
+      row.addEventListener("click", (e) => { e.stopPropagation(); if (ev) searchOpenEvent(ev.id); else askCalendar(); });
+      searchUI.list.append(row);
+    });
+  }
+  async function askCalendar() {
+    const question = searchUI.input.value.trim();
+    if (!question) return;
+    searchRequest?.abort();
+    const request = new AbortController(); searchRequest = request;
+    const now = new Date(), from = addDays(startOfDay(now), -14), until = addDays(startOfDay(now), 61);
+    searchUI.answer.hidden = false; searchUI.answer.textContent = "Asking your calendar…";
+    searchUI.answer.setAttribute("aria-busy", "true");
+    try {
+      const response = await fetch("/api/ask", { method: "POST", signal: request.signal,
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question,
+          now: `${toISO(now)} (${now.toLocaleDateString(undefined, { weekday: "long" })})`, calendars,
+          events: events.filter((ev) => parseISO(ev.start) < until && parseISO(ev.end) > from)
+            .sort((a, b) => Math.abs(parseISO(a.start) - now) - Math.abs(parseISO(b.start) - now)).slice(0, 300),
+          free: searchFreeGaps(events, now) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      if (searchRequest !== request) return;
+      searchUI.answer.textContent = typeof data.answer === "string" ? data.answer : "No answer returned.";
+      const chips = document.createElement("div"); chips.className = "search-chips";
+      const chip = (label, action) => { const b = document.createElement("button"); b.type = "button"; b.className = "search-chip"; b.textContent = label; b.onclick = (e) => { e.stopPropagation(); action(); }; chips.append(b); };
+      for (const id of Array.isArray(data.event_ids) ? data.event_ids : []) {
+        const ev = events.find((item) => item.id === id);
+        if (ev) chip(`${ev.title} · ${searchWhen(ev)}`, () => searchOpenEvent(id));
+      }
+      const timeRE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+      for (const range of Array.isArray(data.free_ranges) ? data.free_ranges : []) {
+        if (!range || !timeRE.test(range.start) || !timeRE.test(range.end) || parseISO(range.end) <= parseISO(range.start)) continue;
+        chip(searchWhen(range), () => searchOpenSlot(range));
+      }
+      searchUI.answer.append(chips);
+    } catch (err) {
+      if (searchRequest === request && err.name !== "AbortError") searchUI.answer.textContent = err.message;
+    } finally {
+      if (searchRequest === request) { searchRequest = null; searchUI.answer.setAttribute("aria-busy", "false"); }
+    }
+  }
+  searchUI.button.addEventListener("click", () => searchUI.root.hidden ? openSearch() : closeSearch());
+  $("searchClose").addEventListener("click", closeSearch);
+  searchUI.root.addEventListener("click", (e) => e.stopPropagation());
+  searchUI.input.addEventListener("input", () => { searchRequest?.abort(); searchRequest = null; searchUI.answer.setAttribute("aria-busy", "false"); renderSearch(); });
+  searchUI.input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.isComposing) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (searchRows.length) highlightSearch((searchActive + (e.key === "ArrowDown" ? 1 : -1) + searchRows.length) % searchRows.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const ev = searchRows[searchActive]; if (ev) searchOpenEvent(ev.id); else askCalendar();
+    } else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !searchUI.root.hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeSearch(); }
+  }, true);
 
   // ---------- Booking pages ----------
   // "Book time with me" pages, like Calendly or Google's appointment schedules: a length, weekdays and
@@ -5310,6 +5485,356 @@
   renderBookingList();
   syncBookingHash();
 
+  // ---------- Conflicts ----------
+  // When a timed event is created or moved on top of another one, a card asks what to do: keep both,
+  // move the new event to its next free slot, reschedule the other event (and tell its guests), or
+  // cancel the change. "Don't ask again" turns on auto mode: the new event moves by itself and a
+  // status line says so. Hidden calendars count (busy is busy); all-day events, tour examples,
+  // finished tasks and the other entries of the same task don't.
+  const CONFLICT_KEY = "nl-calendar-conflicts";
+  const CONFLICT_HOURS = { from: 8 * 60, to: 22 * 60, step: 15, days: 14 };
+  const conflictAuto = () => { try { return localStorage.getItem(CONFLICT_KEY) === "auto"; } catch { return false; } };
+  function setConflictAuto(on) {
+    try { if (on) localStorage.setItem(CONFLICT_KEY, "auto"); else localStorage.removeItem(CONFLICT_KEY); } catch { /* ignore */ }
+  }
+  const isTimedEvent = (ev) => !!ev && !ev.allDay && typeof ev.start === "string" && typeof ev.end === "string";
+  // Does `other` take up time that `ev` can't share?
+  function blocksTime(ev, other) {
+    return other !== ev && other.id !== ev.id && isTimedEvent(other) && notDemo(other) && !other.done
+      && !(ev.taskId && other.taskId === ev.taskId);
+  }
+  const busyFor = (ev) => events.filter((o) => blocksTime(ev, o)).map((o) => ({ start: parseISO(o.start), end: parseISO(o.end) }));
+  function conflictsOf(ev) {
+    const s = parseISO(ev.start), e = parseISO(ev.end);
+    return events.filter((o) => blocksTime(ev, o) && parseISO(o.start) < e && s < parseISO(o.end))
+      .sort((a, b) => parseISO(a.start) - parseISO(b.start));
+  }
+
+  // conflict-slot-helper:start
+  // The first slot of the same (wall-clock) length as start→end, at or after start, that overlaps
+  // nothing in busy ([{start, end}] Dates). 15-minute steps, same day first, then up to `days` days
+  // ahead, only between from and to (minutes after midnight). Times are built on the clock
+  // (midnight, then setHours), never by adding milliseconds, so DST days stay right. null if none.
+  function nextFreeSlot(start, end, busy, opt = CONFLICT_HOURS) {
+    const dayGap = Math.round((startOfDay(end) - startOfDay(start)) / 86400000);
+    const startMin = start.getHours() * 60 + start.getMinutes();
+    const dur = dayGap * 1440 + end.getHours() * 60 + end.getMinutes() - startMin;
+    if (dur <= 0 || dur > opt.to - opt.from) return null;
+    for (let k = 0; k <= opt.days; k++) {
+      const day = addDays(startOfDay(start), k);
+      let m = k === 0 ? Math.max(opt.from, Math.ceil(startMin / opt.step) * opt.step) : opt.from;
+      for (; m + dur <= opt.to; m += opt.step) {
+        const s = startOfDay(day); s.setHours(Math.floor(m / 60), m % 60, 0, 0);
+        const e = startOfDay(day); e.setHours(Math.floor((m + dur) / 60), (m + dur) % 60, 0, 0);
+        if (!busy.some((b) => b.start < e && s < b.end)) return { start: s, end: e };
+      }
+    }
+    return null;
+  }
+  // conflict-slot-helper:end
+  const slotFor = (ev) => nextFreeSlot(parseISO(ev.start), parseISO(ev.end), busyFor(ev));
+
+  // Guests to tell about a move: an event's own guests list if it has one, plus the person who booked
+  // it through a booking page (confirmBooking keeps their name and email in "Booking details.txt").
+  function guestsOf(ev) {
+    const names = [];
+    for (const g of Array.isArray(ev.guests) ? ev.guests : []) {
+      const n = typeof g === "string" ? g : g && (g.name || g.email);
+      if (n && !names.includes(String(n))) names.push(String(n));
+    }
+    const file = filesFor(ev.id).find((f) => f.name === "Booking details.txt");
+    if (file) {
+      const name = /^Name: (.+)$/m.exec(file.content || ""), email = /^Email: (.+)$/m.exec(file.content || "");
+      const n = (name && name[1].trim()) || (email && email[1].trim());
+      if (n && !names.includes(n)) names.push(n);
+    }
+    return names;
+  }
+  const andList = (xs) => xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+  const quoted = (ev) => `“${ev.title || "(No title)"}”`;
+  // "2:15pm" on the same day as `from`, else "Wed, Nov 19 at 2:15pm".
+  const slotWhen = (d, from) => sameDay(d, from) ? fmtTime(d) : `${shortDate(d)} at ${fmtTime(d)}`;
+  const otherWhen = (o) => `${fmtRange(parseISO(o.start), parseISO(o.end))}, ${(calOf(o) || {}).name || "Calendar"}`;
+
+  // One check at a time: the events still to look at, how many undo steps this check has added
+  // (Cancel undoes those plus the change itself), and the auto-mode moves waiting to be reported.
+  const cfx = { queue: [], steps: 0, total: 0, index: 0, current: null, token: 0, autoMsgs: [], autoPushed: false, returnFocus: null };
+
+  const cfxEl = (() => {
+    const root = document.createElement("div");
+    root.className = "conflict-card";
+    root.setAttribute("role", "alertdialog");
+    root.setAttribute("aria-modal", "false");
+    root.setAttribute("aria-labelledby", "cfxTitle");
+    root.setAttribute("aria-describedby", "cfxText");
+    root.tabIndex = -1;
+    root.hidden = true;
+    root.innerHTML = `
+      <div class="cfx-head">
+        <svg class="cfx-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+        <h2 class="cfx-title" id="cfxTitle">Scheduling conflict</h2>
+        <span class="cfx-count" id="cfxCount"></span>
+      </div>
+      <div class="cfx-text" id="cfxText"></div>
+      <div class="cfx-choices">
+        <button type="button" class="cfx-choice primary" data-cfx="move"></button>
+        <button type="button" class="cfx-choice" data-cfx="other"></button>
+        <div class="cfx-none" id="cfxNone" hidden></div>
+      </div>
+      <label class="cfx-auto"><input type="checkbox" id="cfxAuto"> <span>Don’t ask again: always move the new event</span></label>
+      <div class="cfx-actions">
+        <button type="button" class="cfx-btn" data-cfx="cancel" title="Undo the change that caused this">Cancel</button>
+        <span class="cfx-spacer"></span>
+        <button type="button" class="cfx-btn" data-cfx="keep">Keep both</button>
+      </div>`;
+    document.body.appendChild(root);
+    const q = (s) => root.querySelector(s);
+    return {
+      root, count: q("#cfxCount"), text: q("#cfxText"), move: q('[data-cfx="move"]'), other: q('[data-cfx="other"]'),
+      none: q("#cfxNone"), autoRow: q(".cfx-auto"), auto: q("#cfxAuto"), keep: q('[data-cfx="keep"]'),
+    };
+  })();
+  const conflictOpen = () => !cfxEl.root.hidden;
+
+  // Status messages go to the sidebar line, or the hub's own line while the Connection Hub is showing.
+  function conflictStatus(html, { undoBtn = true, askBtn = false } = {}) {
+    const hubMode = mode === "hub";
+    const link = hubMode ? "hc-link" : "undo";
+    const extras = [
+      undoBtn && `<button class="${link}" type="button" data-cfx-undo>Undo</button>`,
+      // (not class "undo" in the sidebar: its click handler would undo)
+      askBtn && `<button class="${hubMode ? "hc-link " : ""}cfx-ask" type="button" data-cfx-ask>Ask me next time</button>`,
+    ].filter(Boolean).join(`<span class="cfx-dot" aria-hidden="true"> · </span>`);
+    const out = extras ? `${html} ${extras}` : html;
+    if (hubMode) hubStatus(out); else setStatus(out);
+  }
+  // The sidebar's own handler already undoes on a .undo button; these cover "Ask me next time" and the hub.
+  el.aiStatus.addEventListener("click", (e) => {
+    if (e.target.closest("[data-cfx-ask]")) { setConflictAuto(false); setStatus("OK, I’ll ask about overlaps again."); }
+  });
+  hubEl.status.addEventListener("click", (e) => {
+    if (e.target.closest("[data-cfx-ask]")) { setConflictAuto(false); hubStatus("OK, I’ll ask about overlaps again."); }
+    else if (e.target.closest("[data-cfx-undo]")) { undo(); hubStatus("Undone."); }
+  });
+
+  // Hook: call with the events a change just created or re-timed (after it has been saved and rendered).
+  function checkConflicts(list) {
+    const ids = [...new Set((list || []).filter((ev) => isTimedEvent(ev) && notDemo(ev) && !ev.done).map((ev) => ev.id))];
+    if (!ids.length) return;
+    if (conflictOpen()) dismissConflicts(); // a new change: whatever was open counts as "keep both"
+    const token = ++cfx.token;
+    // Wait a tick so the caller's own status line ("Moved …", the AI reply) is up before ours replaces it.
+    setTimeout(() => {
+      if (token !== cfx.token) return;
+      cfx.queue = ids;
+      cfx.steps = 0;
+      cfx.index = 0;
+      cfx.total = ids.filter((id) => { const ev = eventById(id); return ev && conflictsOf(ev).length; }).length;
+      nextConflict();
+    }, 0);
+  }
+
+  function nextConflict() {
+    cfx.current = null;
+    while (cfx.queue.length) {
+      const ev = eventById(cfx.queue.shift());
+      if (!ev || !isTimedEvent(ev) || !notDemo(ev) || ev.done) continue;
+      const others = conflictsOf(ev);
+      if (!others.length) continue;
+      cfx.index++;
+      const slot = slotFor(ev);
+      if (conflictAuto() && slot) { autoMove(ev, slot, others); continue; }
+      flushAuto();
+      showConflictCard(ev, others, slot);
+      return;
+    }
+    flushAuto();
+    hideConflictCard();
+  }
+
+  function setTimes(ev, slot) {
+    ev.start = toISO(slot.start);
+    ev.end = toISO(slot.end);
+  }
+  function redraw(ids) {
+    saveEvents();
+    flashIds = new Set(ids);
+    render();
+    flashIds = new Set();
+  }
+
+  // Auto mode: move the new event; all moves from one check share one undo step and one message.
+  function autoMove(ev, slot, others) {
+    if (!cfx.autoPushed) { pushUndo(); cfx.steps++; cfx.autoPushed = true; }
+    const from = parseISO(ev.start);
+    setTimes(ev, slot);
+    cfx.autoMsgs.push({ id: ev.id, text: `Moved ${escapeHTML(quoted(ev))} to ${escapeHTML(slotWhen(slot.start, from))} because it overlapped ${escapeHTML(andList(others.map(quoted)))}.` });
+  }
+  function flushAuto() {
+    if (!cfx.autoMsgs.length) return;
+    const msgs = cfx.autoMsgs;
+    cfx.autoMsgs = [];
+    cfx.autoPushed = false;
+    redraw(msgs.map((m) => m.id));
+    conflictStatus(msgs.map((m) => m.text).join(" "), { askBtn: true });
+  }
+
+  function showConflictCard(ev, others, slot) {
+    const from = parseISO(ev.start);
+    const otherSlot = others.length === 1 ? slotFor(others[0]) : null;
+    cfx.current = { id: ev.id, others: others.map((o) => o.id), slot, otherSlot };
+
+    cfxEl.count.textContent = cfx.total > 1 ? `${Math.min(cfx.index, cfx.total)} of ${cfx.total}` : "";
+    cfxEl.text.textContent = "";
+    if (others.length === 1) {
+      cfxEl.text.textContent = `${quoted(ev)} overlaps ${quoted(others[0])} (${otherWhen(others[0])})`;
+    } else {
+      const p = document.createElement("p");
+      p.textContent = `${quoted(ev)} overlaps ${others.length} events:`;
+      const ul = document.createElement("ul");
+      for (const o of others) {
+        const li = document.createElement("li");
+        li.textContent = `${quoted(o)} (${otherWhen(o)})`;
+        ul.appendChild(li);
+      }
+      cfxEl.text.append(p, ul);
+    }
+
+    cfxEl.move.hidden = !slot;
+    if (slot) cfxEl.move.textContent = `Move ${quoted(ev)} to ${slotWhen(slot.start, from)}`;
+    cfxEl.none.hidden = !!slot;
+    cfxEl.none.textContent = slot ? "" : `No free time for ${quoted(ev)} in the next ${CONFLICT_HOURS.days} days (8am – 10pm).`;
+    cfxEl.other.hidden = !otherSlot;
+    if (otherSlot) {
+      const o = others[0];
+      cfxEl.other.textContent = `Reschedule ${quoted(o)} to ${slotWhen(otherSlot.start, parseISO(o.start))}`
+        + (guestsOf(o).length ? " and let its guests know" : "");
+    }
+    // The checkbox only means something when the new event can be moved.
+    cfxEl.autoRow.hidden = !slot;
+    cfxEl.auto.checked = false;
+
+    if (!conflictOpen()) {
+      const a = document.activeElement;
+      cfx.returnFocus = a && a !== document.body && !cfxEl.root.contains(a) ? a : null;
+    }
+    cfxEl.root.hidden = false;
+    placeConflictCard();
+    revealUnderCard([ev, ...others]);
+    cfxEl.keep.focus(); // the harmless choice; Enter on it changes nothing
+  }
+  // In Day/Week, scroll the grid so the clashing events show below the card instead of behind it.
+  function revealUnderCard(list) {
+    if (mode !== "calendar" || !timeView()) return;
+    const tops = list.map((x) => el.weekGrid.querySelector(`.event[data-id="${x.id}"]`))
+      .filter(Boolean).map((b) => b.getBoundingClientRect().top);
+    if (!tops.length) return;
+    const gap = cfxEl.root.getBoundingClientRect().bottom + 12 - Math.min(...tops);
+    if (gap > 0) el.weekBody.scrollTop = Math.max(0, el.weekBody.scrollTop - gap);
+  }
+
+  function hideConflictCard() {
+    if (!conflictOpen()) return;
+    const hadFocus = cfxEl.root.contains(document.activeElement);
+    cfxEl.root.hidden = true;
+    const back = cfx.returnFocus;
+    cfx.returnFocus = null;
+    if (hadFocus) {
+      if (back && back.isConnected && !back.closest("[hidden]")) back.focus();
+      else document.activeElement.blur();
+    }
+  }
+  // Close without changing anything more (a mode switch, a popover opening, a newer change).
+  function dismissConflicts() {
+    cfx.queue = [];
+    cfx.current = null;
+    cfx.token++;
+    flushAuto();
+    hideConflictCard();
+  }
+
+  // Centred near the top of whatever main area is showing.
+  function placeConflictCard() {
+    const area = mode === "hub" ? hubEl.root : mode === "timeline" ? tlEl.root : el.main;
+    const r = area && area.offsetParent !== null ? area.getBoundingClientRect() : { left: 0, width: window.innerWidth, top: 64 };
+    const w = cfxEl.root.offsetWidth;
+    const left = clamp(r.left + r.width / 2 - w / 2, 8, Math.max(8, window.innerWidth - w - 8));
+    cfxEl.root.style.left = `${left}px`;
+    cfxEl.root.style.top = `${Math.max(8, r.top + 16)}px`;
+  }
+
+  function resolveConflict(choice) {
+    const cur = cfx.current;
+    if (!cur) return;
+    const ev = eventById(cur.id);
+    if (choice === "cancel") {
+      // Undo the moves this card made, then the change that caused the overlap.
+      const n = cfx.steps + 1;
+      cfx.queue = [];
+      cfx.current = null;
+      hideConflictCard();
+      for (let i = 0; i < n; i++) undo();
+      if (mode === "hub") hubStatus("Cancelled: undid the change that caused the overlap.");
+      return;
+    }
+    if (choice === "move" && ev && cur.slot) {
+      const turnOn = cfxEl.auto.checked && !conflictAuto();
+      if (cfxEl.auto.checked) setConflictAuto(true);
+      const from = parseISO(ev.start);
+      pushUndo();
+      cfx.steps++;
+      setTimes(ev, cur.slot);
+      redraw([ev.id]);
+      conflictStatus(`Moved ${escapeHTML(quoted(ev))} to ${escapeHTML(slotWhen(cur.slot.start, from))}.`
+        + (turnOn ? " From now on I’ll move new events off busy times by myself." : ""), { askBtn: turnOn });
+    } else if (choice === "other") {
+      const o = eventById(cur.others[0]);
+      if (o && cur.otherSlot) {
+        const from = parseISO(o.start);
+        pushUndo();
+        cfx.steps++;
+        setTimes(o, cur.otherSlot);
+        redraw([o.id]);
+        const guests = guestsOf(o);
+        conflictStatus(`Moved ${escapeHTML(quoted(o))} to ${escapeHTML(slotWhen(cur.otherSlot.start, from))}.`
+          + (guests.length ? ` Sent an update to ${escapeHTML(andList(guests))} (demo, no email is sent).` : ""));
+      }
+    }
+    // "keep" (or a choice whose event has gone): nothing more to do for this one.
+    nextConflict();
+  }
+
+  cfxEl.root.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-cfx]");
+    if (b) resolveConflict(b.dataset.cfx);
+  });
+  cfxEl.root.addEventListener("keydown", (e) => {
+    e.stopPropagation(); // the calendar's single-key shortcuts don't apply inside the card
+    if (e.key === "Escape") { e.preventDefault(); resolveConflict("keep"); return; }
+    if (e.key === "Tab") {
+      // Keep Tab inside the card while it's asking.
+      const items = [...cfxEl.root.querySelectorAll("button, input")].filter((n) => !n.disabled && n.offsetParent !== null);
+      if (!items.length) return;
+      const i = items.indexOf(document.activeElement);
+      const next = e.shiftKey ? (i <= 0 ? items.length - 1 : i - 1) : (i === items.length - 1 ? 0 : i + 1);
+      e.preventDefault();
+      items[next].focus();
+    }
+  });
+  // Escape anywhere else while the card is up also means "keep both" (unless it's cancelling a drag).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !conflictOpen() || cfxEl.root.contains(e.target) || drag || tdrag || hdrag) return;
+    e.stopPropagation();
+    e.preventDefault();
+    resolveConflict("keep");
+  }, true);
+  // Don't fight other UI: a popover opening or a mode switch closes the card.
+  new MutationObserver(() => { if (!el.popover.hidden && conflictOpen()) dismissConflicts(); })
+    .observe(el.popover, { attributes: true, attributeFilter: ["hidden"] });
+  new MutationObserver(() => { if (conflictOpen()) dismissConflicts(); })
+    .observe(document.body, { attributes: true, attributeFilter: ["data-mode"] });
+  window.addEventListener("resize", () => { if (conflictOpen()) placeConflictCard(); });
+
   // ---------- Help tour (one per mode) ----------
   // Sections are separate topics; each step highlights an element (if it's on screen) and explains it.
   // Each step can list "demo" keys: things the tour opens or puts on screen for that step (see DEMOS).
@@ -5931,6 +6456,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !cf.root.hidden) { closeConfirm(); return; }
     if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
+    if (e.key === "/" && !isTyping(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey && !dragging()) { e.preventDefault(); openSearch(); return; }
     if (mode === "hub") return; // the hub has no calendar shortcuts
     if (mode === "timeline") {
       // View only: no undo/redo or calendar shortcuts here.
