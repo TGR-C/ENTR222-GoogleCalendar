@@ -397,6 +397,9 @@
     if (!ev.location) p.querySelector(".ploc").remove();
     p.querySelector("[data-close]").onclick = hidePopover;
     p.dataset.eventId = ev.id;
+    const titleEl = p.querySelector(".ptitle");
+    titleEl.title = "Double-click to edit";
+    titleEl.addEventListener("dblclick", () => editPopoverTitle(ev, titleEl));
     // Trash icon next to the close button, like Google.
     const del = document.createElement("button");
     del.type = "button";
@@ -1017,6 +1020,58 @@
       if (anchor) showPopover(ev, anchor); else hidePopover();
     }
     setStatus(`${done ? "Completed" : "Reopened"} “${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
+
+  // Double-click the popover title to rename the event (and its task, if it came from one).
+  function editPopoverTitle(ev, titleEl) {
+    if (titleEl.querySelector("input")) return;
+    const input = document.createElement("input");
+    input.className = "ptitle-input";
+    input.type = "text";
+    input.maxLength = 200;
+    input.value = ev.title || "";
+    input.setAttribute("aria-label", "Title");
+    titleEl.textContent = "";
+    titleEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const val = input.value.trim();
+      if (!save || !val || val === ev.title) {
+        titleEl.textContent = ev.title || "(No title)";
+        return;
+      }
+      pushUndo();
+      if (ev.taskId) {
+        events.forEach((x) => { if (x.taskId === ev.taskId) x.title = val; });
+        const task = tasks.find((t) => t.id === ev.taskId);
+        if (task) task.title = val;
+        saveTasks();
+        renderTasks();
+      } else {
+        ev.title = val;
+      }
+      saveEvents();
+      const popoverOpen = !el.popover.hidden && el.popover.dataset.eventId === ev.id;
+      flashIds = new Set([ev.id]);
+      render();
+      flashIds = new Set();
+      if (popoverOpen) {
+        // Re-open on the freshly drawn event so the popover shows the new title.
+        const anchor = document.querySelector(`[data-id="${ev.id}"]:not(.echeck)`);
+        if (anchor) showPopover(ev, anchor); else titleEl.textContent = val;
+      }
+      setStatus(`Renamed to “${escapeHTML(val)}”. <button class="undo" type="button">Undo</button>`);
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   // Delete from the popover. A task placed on the calendar is deleted as a task: all of its

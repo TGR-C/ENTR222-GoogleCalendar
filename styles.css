@@ -362,6 +362,11 @@ body.task-dragging .allday-zone.zone-hot::after {
 .popover .pinfo { min-width: 0; overflow-wrap: anywhere; }
 .popover .ptop { display: flex; justify-content: flex-end; margin: -8px -12px 0 0; }
 .popover .pdelete { color: #5f6368; }
+.popover .ptitle { cursor: text; }
+.popover .ptitle-input {
+  width: 100%; font: inherit; color: inherit; border: 0; border-bottom: 2px solid var(--blue);
+  outline: 0; padding: 0 0 2px; background: transparent;
+}
 .popover .prow { display: flex; gap: 16px; align-items: flex-start; }
 .popover .swatch { width: 14px; height: 14px; border-radius: 4px; margin-top: 6px; flex-shrink: 0; }
 .popover .ptitle { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; }
