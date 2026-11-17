@@ -1332,6 +1332,7 @@ input.hc-in[name="title"] { width: 100%; font-size: 14px; }
 .theme-btn { color: var(--icon); }
 .theme-btn .theme-sun, :root[data-theme="dark"] .theme-btn .theme-moon { display: none; }
 :root[data-theme="dark"] .theme-btn .theme-sun { display: block; }
+.bk-guest.tour-preview { z-index: 290; }
 .tour[hidden] { display: none; }
 .tour { position: fixed; inset: 0; z-index: 300; }
 .tour.dim { background: rgba(var(--scrim-rgb), .5); }

@@ -50,7 +50,7 @@ The three tabs at the top left switch modes in one click — **Calendar**, **Act
 **Connection Hub**. The current mode shows its icon and name; the others show just their icon.
 
 The **(?)** button at the top right starts a short guided tour of the current mode. Each tour is split into
-sections (Calendar: AI add & edit, Tasks, Whentomeet · Action Timeline: reading the timeline, Work with AI ·
+sections (Calendar: Views & search, AI: add & edit, Tasks, Whentomeet, Booking pages · Action Timeline: reading the timeline, Work with AI ·
 Connection Hub: messages, Construct) that can be skipped or jumped to. Short tips also appear as tooltips
 when hovering over the relevant area.
 
@@ -200,7 +200,7 @@ Keyboard shortcuts (ignored while typing in a text box):
 |---|---|
 | `Ctrl/⌘ + Z` | Undo |
 | `Ctrl + Y`, `Ctrl/⌘ + Shift + Z` | Redo |
-| `W` / `M` | Week / Month view |
+| `D` / `W` / `M` / `Y` | Day / Week / Month / Year view |
 | `T` | Today |
 | `J` or `N` / `K` or `P` | Next / previous period |
 
