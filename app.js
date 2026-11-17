@@ -1702,6 +1702,278 @@
     if (view === "week") el.weekBody.scrollTop = hourPx() * 7.5;
   }
 
+  // ---------- modes: Calendar / Action timeline ----------
+  const MODE_KEY = "nl-calendar-mode";
+  let mode = (() => {
+    try { return localStorage.getItem(MODE_KEY) === "timeline" ? "timeline" : "calendar"; } catch { return "calendar"; }
+  })();
+  const modeEl = { btn: $("modeBtn"), menu: $("modeMenu"), label: $("modeLabel") };
+
+  function setMode(m) {
+    mode = m;
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
+    document.body.dataset.mode = m;
+    modeEl.label.textContent = m === "timeline" ? "Action timeline" : "Calendar";
+    modeEl.menu.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === m)));
+    closeModeMenu();
+    hidePopover();
+    if (quickAddOpen()) closeQuickAdd();
+    tlEl.root.hidden = m !== "timeline";
+    if (m === "timeline") { tl.auto = true; buildTimeline(); }
+    else render();
+  }
+  function closeModeMenu() {
+    modeEl.menu.hidden = true;
+    modeEl.btn.setAttribute("aria-expanded", "false");
+  }
+  modeEl.btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    modeEl.menu.hidden = !modeEl.menu.hidden;
+    modeEl.btn.setAttribute("aria-expanded", String(!modeEl.menu.hidden));
+  });
+  modeEl.menu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-mode]");
+    if (b) { e.stopPropagation(); setMode(b.dataset.mode); }
+  });
+
+  // ---------- Action timeline (read-only) ----------
+  // Timed events from visible calendars, in order, laid out as nodes on one line. The focused
+  // node sits in the centre; the next one sits toward the faded right edge.
+  const tlEl = {
+    root: $("timeline"), stage: $("tlStage"), track: $("tlTrack"), countdown: $("tlCountdown"),
+    allday: $("tlAllday"), dayLabel: $("tlDayLabel"), prev: $("tlPrev"), next: $("tlNext"),
+    empty: $("tlEmpty"), now: $("tlNow"),
+  };
+  const tl = { items: [], focus: 0, auto: true, drag: null, spacing: 300 };
+  const MIN = 60000;
+  const PIN_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>`;
+
+  function timelineItems() {
+    return events
+      .filter((ev) => !ev.allDay && isVisible(ev) && !(ev.taskId && ev.done))
+      .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
+      .sort((a, b) => a.s - b.s || a.e - b.e);
+  }
+  // The imminent event: the one happening now, otherwise the next one to start.
+  function imminentIndex(items) {
+    const now = new Date();
+    const i = items.findIndex((it) => it.e > now);
+    return i === -1 ? items.length - 1 : i;
+  }
+  function fmtDur(ms) {
+    const m = Math.max(0, Math.round(ms / MIN));
+    if (m < 60) return `${m}m`;
+    if (m < 1440) return `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
+    const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+    return `${d}d${h ? ` ${h}h` : ""}`;
+  }
+  // Under 15 minutes turns orange, under 5 minutes red.
+  const tone = (ms) => (ms < 5 * MIN ? "red" : ms < 15 * MIN ? "orange" : "green");
+  const dayName = (d) => {
+    const diff = Math.round((startOfDay(d) - startOfDay(new Date())) / 86400000);
+    return diff === 0 ? "Today" : diff === 1 ? "Tomorrow" : diff === -1 ? "Yesterday"
+      : d.toLocaleDateString(undefined, { weekday: "long" });
+  };
+
+  function buildTimeline() {
+    tl.items = timelineItems();
+    if (tl.auto) tl.focus = imminentIndex(tl.items);
+    tl.focus = clamp(tl.focus, 0, Math.max(0, tl.items.length - 1));
+    drawTimeline();
+  }
+
+  function tlNode(it, x, central, refDay) {
+    const { ev, s, e } = it;
+    const cal = calOf(ev) || {};
+    const color = colorOf(ev);
+    const now = new Date();
+    const node = document.createElement("div");
+    node.className = "tl-node" + (central ? " central" : "") + (s <= now && now < e ? " ongoing" : "");
+    node.style.left = `${x}px`;
+    node.style.setProperty("--c", color);
+    node.innerHTML = `
+      <div class="tl-card">
+        <div class="tl-time"></div>
+        <div class="tl-title"></div>
+        <div class="tl-loc">${PIN_SVG}<span></span></div>
+        <div class="tl-tag"><span class="tl-tagdot"></span><span class="tl-tagname"></span></div>
+      </div>
+      <div class="tl-dot"></div>`;
+    const sameDayAsRef = sameDay(s, refDay);
+    node.querySelector(".tl-time").textContent = (sameDayAsRef ? "" : `${shortDate(s)} · `) + fmtRange(s, e);
+    const title = node.querySelector(".tl-title");
+    title.textContent = ev.title || "(No title)";
+    if (ev.taskId) {
+      const t = document.createElement("span");
+      t.className = "tl-taskmark";
+      t.title = "Task";
+      title.prepend(t);
+    }
+    if (s <= now && now < e) {
+      const b = document.createElement("span");
+      b.className = "tl-live";
+      b.textContent = "Now";
+      title.prepend(b);
+    }
+    const loc = node.querySelector(".tl-loc");
+    if (ev.location) loc.querySelector("span").textContent = ev.location; else loc.remove();
+    node.querySelector(".tl-tagdot").style.background = color;
+    node.querySelector(".tl-tagname").textContent = cal.name || "";
+    return node;
+  }
+
+  function tlGap(a, b, x) {
+    const gap = b.s - a.e;
+    const g = document.createElement("div");
+    g.style.left = `${x}px`;
+    if (gap < 0) {
+      g.className = "tl-pill red";
+      g.innerHTML = `<b>${fmtDur(-gap)}</b><small>overlap</small>`;
+    } else {
+      g.className = `tl-pill ${tone(gap)}`;
+      g.innerHTML = `<b>${gap ? fmtDur(gap) : "0m"}</b><small>${gap ? "until next" : "back-to-back"}</small>`;
+    }
+    return g;
+  }
+
+  function drawTimeline() {
+    const W = tlEl.stage.clientWidth;
+    tl.spacing = Math.max(240, W * 0.38);
+    const cx = W / 2;
+    tlEl.track.innerHTML = "";
+    tlEl.track.style.transition = "none";
+    tlEl.track.style.transform = "";
+    const has = tl.items.length > 0;
+    tlEl.empty.hidden = has;
+    tlEl.now.hidden = tl.auto;
+    const focusIt = has ? tl.items[tl.focus] : null;
+    const refDay = focusIt ? focusIt.s : new Date();
+
+    // Day label + day buttons.
+    tlEl.dayLabel.innerHTML = `<b></b><span></span>`;
+    tlEl.dayLabel.querySelector("b").textContent = dayName(refDay);
+    tlEl.dayLabel.querySelector("span").textContent = refDay.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    tlEl.prev.disabled = !has || tl.items.findIndex((it) => startOfDay(it.s) < startOfDay(refDay)) === -1;
+    tlEl.next.disabled = !has || tl.items.findIndex((it) => startOfDay(it.s) > startOfDay(refDay)) === -1;
+
+    if (!has) {
+      tlEl.empty.textContent = "Nothing scheduled. Switch to Calendar mode to add events.";
+      tlEl.countdown.innerHTML = "";
+    } else {
+      // Nodes near the viewport (a few extra on each side so dragging has something to show).
+      for (let i = Math.max(0, tl.focus - 3); i <= Math.min(tl.items.length - 1, tl.focus + 4); i++) {
+        const x = cx + (i - tl.focus) * tl.spacing;
+        tlEl.track.appendChild(tlNode(tl.items[i], x, i === tl.focus, refDay));
+        // Gap labels from the central node onward (left of centre is the countdown).
+        if (i >= tl.focus && i < tl.items.length - 1) tlEl.track.appendChild(tlGap(tl.items[i], tl.items[i + 1], x + tl.spacing / 2));
+      }
+      // Left of the central node: time until it starts (from now).
+      const now = new Date();
+      const cd = tlEl.countdown;
+      cd.style.left = `${Math.max(190, cx - tl.spacing / 2)}px`;
+      if (now < focusIt.s) {
+        const ms = focusIt.s - now;
+        cd.className = `tl-countdown tl-pill ${tone(ms)}`;
+        cd.innerHTML = `<b>${fmtDur(ms)}</b><small>until it starts</small>`;
+      } else if (now < focusIt.e) {
+        cd.className = "tl-countdown tl-pill red";
+        cd.innerHTML = `<b>Now</b><small>${fmtDur(focusIt.e - now)} left</small>`;
+      } else {
+        cd.className = "tl-countdown tl-pill past";
+        cd.innerHTML = `<b>Ended</b><small>${fmtDur(now - focusIt.e)} ago</small>`;
+      }
+    }
+
+    // Under the central node: that day's all-day items (checked-off tasks are left out).
+    const ds = startOfDay(refDay), de = addDays(ds, 1);
+    const allDay = events.filter((ev) => ev.allDay && isVisible(ev) && !(ev.taskId && ev.done)
+      && parseISO(ev.start) < de && parseISO(ev.end) > ds);
+    tlEl.allday.hidden = !allDay.length;
+    tlEl.allday.style.left = `${cx}px`;
+    tlEl.allday.innerHTML = allDay.length ? `<div class="tl-allday-head">All day</div>` : "";
+    for (const ev of allDay) {
+      const row = document.createElement("div");
+      row.className = "tl-allday-item";
+      row.innerHTML = `<span class="tl-tagdot"></span><span class="tl-ad-title"></span><span class="tl-ad-cal"></span>`;
+      row.querySelector(".tl-tagdot").style.background = colorOf(ev);
+      row.querySelector(".tl-ad-title").textContent = ev.title || "(No title)";
+      row.querySelector(".tl-ad-cal").textContent = (calOf(ev) || {}).name || "";
+      if (ev.taskId) row.classList.add("is-task");
+      tlEl.allday.appendChild(row);
+    }
+  }
+
+  // Move the focus by n nodes with a slide, starting from an optional drag offset.
+  function tlGo(newFocus, fromOffset = 0) {
+    if (!tl.items.length) return;
+    newFocus = clamp(newFocus, 0, tl.items.length - 1);
+    const moved = newFocus - tl.focus;
+    if (moved) tl.auto = false;
+    tl.focus = newFocus;
+    drawTimeline();
+    const start = fromOffset + moved * tl.spacing;
+    if (!start) return;
+    tlEl.track.style.transition = "none";
+    tlEl.track.style.transform = `translateX(${start}px)`;
+    void tlEl.track.offsetWidth; // apply the start position before animating
+    tlEl.track.style.transition = "transform .32s cubic-bezier(.2,.8,.2,1)";
+    tlEl.track.style.transform = "translateX(0)";
+  }
+  function tlDay(dir) {
+    if (!tl.items.length) return;
+    const ref = startOfDay(tl.items[tl.focus].s);
+    let i;
+    if (dir > 0) i = tl.items.findIndex((it) => startOfDay(it.s) > ref);
+    else {
+      const prevDay = [...tl.items].reverse().find((it) => startOfDay(it.s) < ref);
+      i = prevDay ? tl.items.findIndex((it) => sameDay(it.s, prevDay.s)) : -1;
+    }
+    if (i !== -1) tlGo(i);
+  }
+
+  tlEl.prev.addEventListener("click", (e) => { e.stopPropagation(); tlDay(-1); });
+  tlEl.next.addEventListener("click", (e) => { e.stopPropagation(); tlDay(1); });
+  tlEl.now.addEventListener("click", (e) => { e.stopPropagation(); tl.auto = true; buildTimeline(); });
+
+  // Drag the line to look further ahead (or back).
+  tlEl.stage.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest("button") || !tl.items.length) return;
+    tl.drag = { x0: e.clientX, dx: 0 };
+    tlEl.stage.setPointerCapture(e.pointerId);
+    tlEl.stage.classList.add("dragging");
+    tlEl.track.style.transition = "none";
+  });
+  tlEl.stage.addEventListener("pointermove", (e) => {
+    if (!tl.drag) return;
+    let dx = e.clientX - tl.drag.x0;
+    // Resist past the first / last event.
+    if ((tl.focus === 0 && dx > 0) || (tl.focus === tl.items.length - 1 && dx < 0)) dx *= 0.3;
+    tl.drag.dx = dx;
+    tlEl.track.style.transform = `translateX(${dx}px)`;
+  });
+  function tlEndDrag(e) {
+    if (!tl.drag) return;
+    const dx = tl.drag.dx;
+    tl.drag = null;
+    try { tlEl.stage.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    tlEl.stage.classList.remove("dragging");
+    tlGo(tl.focus + Math.round(-dx / tl.spacing), dx);
+  }
+  tlEl.stage.addEventListener("pointerup", tlEndDrag);
+  tlEl.stage.addEventListener("pointercancel", tlEndDrag);
+  // Horizontal scrolling (trackpads) steps through events too.
+  let tlWheelAt = 0;
+  tlEl.stage.addEventListener("wheel", (e) => {
+    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    if (Math.abs(d) < 15 || Date.now() - tlWheelAt < 350) return;
+    e.preventDefault();
+    tlWheelAt = Date.now();
+    tlGo(tl.focus + Math.sign(d));
+  }, { passive: false });
+
+  // Keep the countdown live; while following "now", move on as events end.
+  setInterval(() => { if (mode === "timeline" && !tl.drag) buildTimeline(); }, 30000);
+
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
   $("prevBtn").onclick = () => step(-1);
@@ -1799,6 +2071,7 @@
     }
     if (!el.popover.contains(e.target)) hidePopover();
     else if (!e.target.closest(".cal-menu")) el.popover.querySelector(".cal-menu")?.remove();
+    if (!modeEl.menu.hidden && !modeEl.menu.contains(e.target)) closeModeMenu();
     if (!el.viewMenu.hidden && !el.viewMenu.contains(e.target)) {
       el.viewMenu.hidden = true;
       el.viewBtn.setAttribute("aria-expanded", "false");
@@ -1807,6 +2080,14 @@
 
   const isTyping = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !modeEl.menu.hidden) { closeModeMenu(); return; }
+    if (mode === "timeline") {
+      // View only: no undo/redo or calendar shortcuts here.
+      if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); tlGo(tl.focus + 1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); tlGo(tl.focus - 1); }
+      return;
+    }
     if (e.key === "Escape") {
       if (quickAddOpen() && el.quickAdd.contains(e.target) && !el.aiSend.disabled) {
         closeQuickAdd();
@@ -1836,12 +2117,17 @@
     else if (key === "k" || key === "p") step(-1);
   });
   const dragging = () => drag || tdrag || hdrag;
-  window.addEventListener("resize", () => { syncQuickAdd(); if (!dragging()) refreshMain(); });
+  window.addEventListener("resize", () => {
+    syncQuickAdd();
+    if (mode === "timeline") { if (!tl.drag) drawTimeline(); }
+    else if (!dragging()) refreshMain();
+  });
   setInterval(() => { if (!dragging() && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   renderTasks();
   renderCalendars();
   syncQuickAdd();
+  setMode(mode);
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();
