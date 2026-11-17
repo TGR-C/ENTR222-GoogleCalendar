@@ -45,7 +45,7 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
 - Left of the centre: time until the centre event starts ("Now" while it's on). Right of the centre: the gap
   between the end of the centre event and the start of the next. Green normally, **orange under 15 min**,
   **red under 5 min** (overlaps show in red).
-- **Drag the line** (or use ← / → or horizontal scroll) to look further ahead; the ◀ ▶ buttons at the top middle (around the date)
+- **Drag the line** (or use ← / → or the mouse wheel) to look further ahead; the ◀ ▶ buttons at the top middle (around the date)
   step one day at a time — days with nothing planned show a "Nothing planned" card (plus any all-day items);
   **Now** returns to the present.
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to

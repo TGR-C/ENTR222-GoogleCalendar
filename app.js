@@ -2193,7 +2193,8 @@
   // Horizontal scrolling (trackpads) steps through events too.
   let tlWheelAt = 0;
   tlEl.stage.addEventListener("wheel", (e) => {
-    const d = tl.vertical ? e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    // Wheel (or trackpad) steps through events in both views: down/right = later, up/left = earlier.
+    const d = tl.vertical ? e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
     if (Math.abs(d) < 15 || Date.now() - tlWheelAt < 350) return;
     e.preventDefault();
     tlWheelAt = Date.now();

@@ -725,20 +725,27 @@ body[data-mode="timeline"] .topbar-right { margin-left: auto; }
 .timeline.expanded .tl-work, .timeline.expanded .tl-work-menu { display: none; }
 .timeline.expanded .tl-line { left: 72px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; margin: 0; }
 .timeline.expanded .tl-track {
-  -webkit-mask-image: linear-gradient(to bottom, transparent 14%, #000 40%, #000 64%, transparent 98%);
-  mask-image: linear-gradient(to bottom, transparent 14%, #000 40%, #000 64%, transparent 98%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 2%, #000 38%, #000 62%, transparent 98%);
+  mask-image: linear-gradient(to bottom, transparent 2%, #000 38%, #000 62%, transparent 98%);
 }
 .timeline.expanded .tl-stage { --ly: 50%; }
 .timeline.expanded .tl-node { left: 72px; }
 .timeline.expanded .tl-card {
-  bottom: auto; top: 0; left: 30px; transform: translateY(-50%); width: min(360px, calc(50vw - 150px)); min-width: 0;
+  bottom: auto; top: 0; left: 30px; transform: translateY(-50%); width: clamp(170px, calc(50vw - 330px), 360px); min-width: 0;
 }
-.timeline.expanded .tl-node.central .tl-card { width: min(380px, calc(50vw - 140px)); bottom: auto; left: 36px; }
+.timeline.expanded .tl-node.central .tl-card { width: clamp(180px, calc(50vw - 320px), 380px); bottom: auto; left: 36px; }
 .timeline.expanded .tl-pill { left: 72px; }
 .timeline.expanded .tl-countdown { left: 72px; }
-.timeline.expanded .tl-allday { left: 108px; top: calc(50% + 92px); transform: none; width: min(360px, calc(50vw - 150px)); min-width: 0; }
+.timeline.expanded .tl-allday { left: 108px; top: calc(50% + 92px); transform: none; width: clamp(180px, calc(50vw - 320px), 380px); min-width: 0; }
 .timeline.expanded .tl-allday-head { text-align: left; }
-.timeline.expanded .tl-nav { top: 12px; background: rgba(255,255,255,.9); border-radius: 30px; padding: 4px 6px; }
+/* vertical view: ▲ date ▼ stacked at the right middle */
+.timeline.expanded .tl-nav {
+  left: auto; right: 20px; top: 50%; transform: translateY(-50%); flex-direction: column; gap: 10px;
+  background: rgba(255,255,255,.9); border-radius: 28px; padding: 6px 4px;
+}
+.timeline.expanded .tl-navbtn svg { transform: rotate(90deg); }
+.timeline.expanded .tl-daylabel { min-width: 0; width: 130px; }
+.timeline.expanded .tl-daylabel b { font-size: 20px; }
 .timeline.expanded .tl-stage { cursor: grab; touch-action: pan-x; }
 .tl-allday-item .att-chips { margin: 0; flex-wrap: nowrap; }
 .tl-allday-item { flex-wrap: wrap; }
