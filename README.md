@@ -7,6 +7,13 @@ text box in the left sidebar: you describe what you want ("Lunch with Sam tomorr
 "move my gym session to Friday 6pm", "cancel everything on Wednesday") and Claude turns it into
 create / update / delete actions.
 
+You can also work with the grid directly:
+
+- **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
+- **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
+  describe it, and Claude fills in the title/details using the slot you picked.
+- Every change (AI or drag) can be undone from the sidebar.
+
 - **Frontend:** static `index.html`, `styles.css`, `app.js` (no build step). Events are stored in the browser's `localStorage`.
 - **Backend:** `api/schedule.js`, a Vercel serverless function that calls the Anthropic API with
   `claude-haiku-5-5` (the lightest Claude model), low effort, and a strict JSON output schema.
@@ -16,6 +23,9 @@ create / update / delete actions.
 1. Import this repo in Vercel (Framework preset: **Other**, no build command needed).
 2. In **Project → Settings → Environment Variables** add `ANTHROPIC_API_KEY`.
 3. Deploy. The page is served at `/` and the AI endpoint at `/api/schedule`.
+
+Once the repo is connected, every push to `main` triggers a new production deployment automatically;
+pushes to other branches get their own preview URLs.
 
 ## Run locally
 

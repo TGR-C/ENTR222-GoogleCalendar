@@ -55,6 +55,9 @@
   let miniMonth = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
   let undoStack = [];
   let flashIds = new Set();
+  let draft = null;        // {start, end} slot picked by click-to-create
+  let drag = null;         // active pointer interaction on the grid
+  let suppressClick = false;
 
   function loadEvents() {
     try {
@@ -142,12 +145,16 @@
         .filter(({ s, e }) => s < dayEnd && e > dayStart)
         .map((it) => ({
           ...it,
+          dayStart,
           top: Math.max(0, (it.s - dayStart) / 60000),            // minutes from midnight
           bottom: Math.min(1440, (it.e - dayStart) / 60000),
         }))
         .sort((a, b) => a.top - b.top || b.bottom - a.bottom);
 
+      col.dataset.day = i;
       layoutColumns(items).forEach((it) => col.appendChild(eventEl(it)));
+
+      if (draft && sameDay(parseISO(draft.start), day)) col.appendChild(draftEl());
 
       if (sameDay(day, today)) {
         const line = document.createElement("div");
@@ -185,7 +192,7 @@
     return items;
   }
 
-  function eventEl({ ev, s, e, top, bottom, col, cols }) {
+  function eventEl({ ev, s, e, top, bottom, col, cols, dayStart }) {
     const div = document.createElement("div");
     const mins = Math.max(bottom - top, 15);
     div.className = "event" + (mins < 45 ? " compact" : "") + (flashIds.has(ev.id) ? " flash" : "");
@@ -200,7 +207,30 @@
     div.innerHTML = `<div class="etitle"></div><div class="etime"></div>`;
     div.querySelector(".etitle").textContent = ev.title || "(No title)";
     div.querySelector(".etime").textContent = fmtRange(s, e) + (ev.location && mins >= 60 ? `, ${ev.location}` : "");
-    div.addEventListener("click", (evt) => { evt.stopPropagation(); showPopover(ev, div); });
+    div.dataset.id = ev.id;
+    // Only the segment that holds the real end time gets a resize handle.
+    if (e - dayStart <= 86400000) {
+      const h = document.createElement("div");
+      h.className = "resize";
+      div.appendChild(h);
+    }
+    return div;
+  }
+
+  // Temporary block shown while picking a slot for click-to-create.
+  function draftEl() {
+    const s = parseISO(draft.start), e = parseISO(draft.end);
+    const top = s.getHours() * 60 + s.getMinutes();
+    const mins = Math.max((e - s) / 60000, 15);
+    const div = document.createElement("div");
+    div.className = "event draft" + (mins < 45 ? " compact" : "");
+    div.style.top = `calc(var(--hour) * ${top / 60})`;
+    div.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
+    div.style.left = "1px";
+    div.style.width = "calc(100% - 10px)";
+    div.style.background = COLORS.peacock;
+    div.innerHTML = `<div class="etitle">(No title)</div><div class="etime"></div>`;
+    div.querySelector(".etime").textContent = fmtRange(s, e);
     return div;
   }
 
@@ -224,6 +254,7 @@
 
   // ---------- popover ----------
   function showPopover(ev, anchor) {
+    clearDraft();
     const s = parseISO(ev.start), e = parseISO(ev.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
@@ -233,46 +264,120 @@
       </button></div>
       <div class="prow"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div>
         <div><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>
-      <div class="phint">To change this event, describe it in the box on the left — e.g. “move ${escapeQuotes(ev.title)} to 3pm”.</div>`;
+      <div class="phint">Drag to move, drag the bottom edge to resize, or describe a change in the box on the left — e.g. “move ${escapeQuotes(ev.title)} to 3pm”.</div>`;
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     p.querySelector(".pwhen").textContent = `${dayStr} · ${fmtRange(s, e)}`;
     p.querySelector(".ploc").textContent = ev.location || "";
     p.querySelector("[data-close]").onclick = hidePopover;
     p.hidden = false;
+    placePopover(anchor);
+  }
+  function hidePopover() {
+    el.popover.hidden = true;
+    clearDraft();
+  }
+  // Remove the click-to-create placeholder without re-rendering (keeps any dragged block attached).
+  function clearDraft() {
+    if (!draft || draft.busy) return;
+    draft = null;
+    el.weekGrid.querySelectorAll(".event.draft").forEach((n) => n.remove());
+  }
+  const escapeQuotes = (s) => String(s).replace(/[<>&"]/g, "");
 
+  function placePopover(anchor) {
+    const p = el.popover;
     const r = anchor.getBoundingClientRect();
     const pw = p.offsetWidth, ph = p.offsetHeight;
     let left = r.right + 8;
     if (left + pw > window.innerWidth - 8) left = r.left - pw - 8;
-    left = Math.max(8, left);
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
     const top = Math.min(Math.max(8, r.top), window.innerHeight - ph - 8);
     p.style.left = `${left}px`;
     p.style.top = `${top}px`;
   }
-  const hidePopover = () => (el.popover.hidden = true);
-  const escapeQuotes = (s) => String(s).replace(/[<>&"]/g, "");
+
+  // Click-to-create: the popover only asks for a description; Claude fills in the rest.
+  function showCreatePopover() {
+    const s = parseISO(draft.start), e = parseISO(draft.end);
+    const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    const p = el.popover;
+    p.innerHTML = `
+      <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button></div>
+      <div class="pnew-when"></div>
+      <form class="ai-input-wrap pnew-form" autocomplete="off">
+        <svg class="ai-spark" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+        <textarea rows="1" placeholder="Describe the event" aria-label="Describe the event"></textarea>
+        <button type="submit" class="ai-send" aria-label="Create">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </form>
+      <div class="ai-status pnew-status">e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”</div>`;
+    p.querySelector(".pnew-when").textContent = `${dayStr} · ${fmtRange(s, e)}`;
+    p.querySelector("[data-close]").onclick = () => { draft.busy = false; hidePopover(); };
+    const form = p.querySelector("form"), input = p.querySelector("textarea");
+    const status = p.querySelector(".pnew-status"), send = p.querySelector(".ai-send");
+    const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 120)}px`; };
+    input.addEventListener("input", grow);
+
+    const submit = async () => {
+      const text = input.value.trim();
+      if (!text || draft.busy) return;
+      draft.busy = true;
+      send.disabled = true; input.readOnly = true;
+      status.classList.remove("error");
+      status.innerHTML = `<span class="spinner"></span>Creating…`;
+      try {
+        const data = await callSchedule(text, { start: draft.start, end: draft.end });
+        draft = null;
+        el.popover.hidden = true;
+        const changed = applyActions(data.actions || []);
+        setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
+      } catch (err) {
+        if (draft) draft.busy = false;
+        send.disabled = false; input.readOnly = false;
+        status.classList.add("error");
+        status.textContent = err.message || "Something went wrong.";
+      }
+    };
+    form.addEventListener("submit", (ev) => { ev.preventDefault(); submit(); });
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); submit(); }
+    });
+
+    p.hidden = false;
+    const anchor = el.weekGrid.querySelector(".event.draft");
+    if (anchor) placePopover(anchor);
+    input.focus();
+  }
 
   // ---------- AI command ----------
+  async function callSchedule(command, slot = null) {
+    const res = await fetch("/api/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        command,
+        events,
+        slot,
+        now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
+        weekStart: dayKey(weekStart),
+        weekEnd: dayKey(addDays(weekStart, 6)),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+    return data;
+  }
+
   async function submitCommand(text) {
     const command = text.trim();
     if (!command) return;
     setBusy(true);
     setStatus(`<span class="spinner"></span>Working on it…`);
     try {
-      const res = await fetch("/api/schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          command,
-          events,
-          now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
-          weekStart: dayKey(weekStart),
-          weekEnd: dayKey(addDays(weekStart, 6)),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-
+      const data = await callSchedule(command);
       const changed = applyActions(data.actions || []);
       el.aiInput.value = "";
       autosize();
@@ -283,6 +388,142 @@
       setBusy(false);
     }
   }
+
+  // ---------- dragging: move, resize, and click/drag-to-create ----------
+  const SNAP = 15;
+  const hourPx = () => el.weekGrid.offsetHeight / 24;
+  const dayCols = () => [...el.weekGrid.querySelectorAll(".day-col")];
+  const colAtX = (x) => {
+    const cols = dayCols();
+    let i = cols.findIndex((c) => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
+    if (i === -1) i = x < cols[0].getBoundingClientRect().left ? 0 : 6;
+    return i;
+  };
+  const minuteAtY = (y) => (y - el.weekGrid.getBoundingClientRect().top) / hourPx() * 60;
+  const snap = (m, fn = Math.round) => fn(m / SNAP) * SNAP;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const atMinute = (dayIdx, min) => new Date(addDays(weekStart, dayIdx).getTime() + min * 60000);
+
+  function setBlockTime(block, s, e) {
+    const top = s.getHours() * 60 + s.getMinutes();
+    const mins = Math.max((e - s) / 60000, 15);
+    block.style.top = `calc(var(--hour) * ${top / 60})`;
+    block.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
+    block.classList.toggle("compact", mins < 45);
+    const t = block.querySelector(".etime");
+    if (t) t.textContent = fmtRange(s, e);
+  }
+
+  el.weekGrid.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || drag) return;
+    const evBlock = e.target.closest(".event:not(.draft)");
+    const col = e.target.closest(".day-col");
+    if (!col) return;
+    const pointerMin = minuteAtY(e.clientY);
+
+    if (evBlock) {
+      const ev = events.find((x) => x.id === evBlock.dataset.id);
+      if (!ev) return;
+      const s = parseISO(ev.start), en = parseISO(ev.end);
+      const dayIdx = Number(col.dataset.day);
+      drag = {
+        mode: e.target.classList.contains("resize") ? "resize" : "move",
+        ev, block: evBlock, x0: e.clientX, y0: e.clientY, moved: false,
+        duration: en - s, newStart: s, newEnd: en,
+        // where inside the event the pointer grabbed it (minutes from event start)
+        grab: pointerMin - (s - addDays(weekStart, dayIdx)) / 60000,
+      };
+    } else {
+      // First click on empty space while a popover is open just closes it (like Google).
+      if (!el.popover.hidden) { hidePopover(); drag = { mode: "dismiss" }; el.weekGrid.setPointerCapture(e.pointerId); return; }
+      drag = { mode: "create", day: Number(col.dataset.day), anchorMin: pointerMin, x0: e.clientX, y0: e.clientY, moved: false };
+    }
+    el.weekGrid.setPointerCapture(e.pointerId);
+  });
+
+  el.weekGrid.addEventListener("pointermove", (e) => {
+    if (!drag || drag.mode === "dismiss") return;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+      drag.moved = true;
+      hidePopover();
+      if (drag.block) drag.block.classList.add("dragging");
+    }
+    const m = minuteAtY(e.clientY);
+
+    if (drag.mode === "move") {
+      const dayIdx = colAtX(e.clientX);
+      const durMin = drag.duration / 60000;
+      const startMin = clamp(snap(m - drag.grab), 0, Math.max(0, 1440 - Math.min(durMin, 1440)));
+      drag.newStart = atMinute(dayIdx, startMin);
+      drag.newEnd = new Date(drag.newStart.getTime() + drag.duration);
+      const col = dayCols()[dayIdx];
+      if (drag.block.parentNode !== col) col.appendChild(drag.block);
+      drag.block.style.left = "1px";
+      drag.block.style.width = "calc(100% - 10px)";
+      setBlockTime(drag.block, drag.newStart, drag.newEnd > atMinute(dayIdx, 1440) ? atMinute(dayIdx, 1440) : drag.newEnd);
+      if (drag.newEnd > atMinute(dayIdx, 1440)) drag.block.querySelector(".etime").textContent = fmtRange(drag.newStart, drag.newEnd);
+    } else if (drag.mode === "resize") {
+      // The handle sits on the segment that holds the end time; resize within that day.
+      const s = parseISO(drag.ev.start);
+      const endDay = startOfDay(new Date(parseISO(drag.ev.end).getTime() - 1));
+      let end = new Date(endDay.getTime() + clamp(snap(m), 0, 1440) * 60000);
+      if (end - s < SNAP * 60000) end = new Date(s.getTime() + SNAP * 60000);
+      drag.newEnd = end;
+      setBlockTime(drag.block, s > endDay ? s : endDay, end);
+      drag.block.querySelector(".etime").textContent = fmtRange(s, end);
+    } else if (drag.mode === "create") {
+      const a = snap(drag.anchorMin, Math.floor), b = snap(m, Math.ceil);
+      const lo = clamp(Math.min(a, b), 0, 1440 - SNAP);
+      const hi = clamp(Math.max(a + SNAP, b), lo + SNAP, 1440);
+      draft = { start: toISO(atMinute(drag.day, lo)), end: toISO(atMinute(drag.day, hi)) };
+      renderGrid();
+    }
+  });
+
+  function endDrag(e, cancelled) {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    try { el.weekGrid.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    // The browser fires "click" right after pointerup; swallow just that one.
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+
+    if (d.mode === "dismiss") return;
+    if (cancelled) { draft = null; render(); return; }
+
+    if (d.mode === "create") {
+      if (!d.moved) {
+        // Single click: a one-hour slot starting at the half hour that was clicked.
+        const start = clamp(snap(d.anchorMin, Math.floor) - (snap(d.anchorMin, Math.floor) % 30), 0, 1380);
+        draft = { start: toISO(atMinute(d.day, start)), end: toISO(atMinute(d.day, start + 60)) };
+      }
+      renderGrid();
+      showCreatePopover();
+      return;
+    }
+
+    if (!d.moved) { showPopover(d.ev, d.block); return; }
+
+    const newStart = toISO(d.mode === "move" ? d.newStart : parseISO(d.ev.start));
+    const newEnd = toISO(d.newEnd);
+    if (newStart === d.ev.start && newEnd === d.ev.end) { render(); return; }
+    undoStack.push(JSON.stringify(events));
+    d.ev.start = newStart;
+    d.ev.end = newEnd;
+    saveEvents();
+    flashIds = new Set([d.ev.id]);
+    render();
+    flashIds = new Set();
+    setStatus(`${d.mode === "move" ? "Moved" : "Resized"} “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
+  el.weekGrid.addEventListener("pointerup", (e) => endDrag(e, false));
+  el.weekGrid.addEventListener("pointercancel", (e) => endDrag(e, true));
+  // A finished drag/click on the grid shouldn't also count as an outside click that closes popovers.
+  window.addEventListener("click", (e) => {
+    if (suppressClick) { suppressClick = false; e.stopPropagation(); }
+  }, true);
 
   function applyActions(actions) {
     if (!actions.length) return [];
@@ -384,9 +625,11 @@
   el.aiStatus.addEventListener("click", (e) => { if (e.target.closest(".undo")) undo(); });
 
   document.addEventListener("click", (e) => { if (!el.popover.contains(e.target)) hidePopover(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePopover(); });
-  window.addEventListener("resize", renderGrid);
-  setInterval(renderGrid, 60000); // keep the red "now" line moving
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { if (draft) draft.busy = false; hidePopover(); }
+  });
+  window.addEventListener("resize", () => { if (!drag) renderGrid(); });
+  setInterval(() => { if (!drag) renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar

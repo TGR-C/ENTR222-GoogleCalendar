@@ -89,6 +89,7 @@ svg { fill: currentColor; display: block; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .ai-hints { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; }
+.ai-hints[hidden] { display: none; }
 .hint {
   text-align: left; font-size: 12px; color: var(--text-2); padding: 4px 8px; border-radius: 12px;
 }
@@ -171,6 +172,22 @@ svg { fill: currentColor; display: block; }
 .event.compact { display: flex; gap: 4px; align-items: center; }
 .event.compact .etitle { flex-shrink: 0; max-width: 65%; }
 .event.compact .etime { flex: 1; min-width: 0; }
+.week-grid { user-select: none; -webkit-user-select: none; }
+.day-col { cursor: default; }
+.event { touch-action: none; }
+.event .resize {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 8px; cursor: ns-resize;
+}
+.event .resize::after { /* small grip like Google, visible on hover */
+  content: ""; position: absolute; left: 50%; bottom: 2px; width: 12px; height: 2px; margin-left: -6px;
+  border-top: 1px solid rgba(255,255,255,.8); border-bottom: 1px solid rgba(255,255,255,.8); opacity: 0;
+}
+.event:hover .resize::after { opacity: 1; }
+.event.dragging {
+  z-index: 20 !important; opacity: .9; cursor: grabbing;
+  box-shadow: 0 6px 10px 0 rgba(0,0,0,.14), 0 1px 18px 0 rgba(0,0,0,.12), 0 3px 5px -1px rgba(0,0,0,.2);
+}
+.event.draft { z-index: 20; box-shadow: 0 6px 10px 0 rgba(0,0,0,.14), 0 1px 18px 0 rgba(0,0,0,.12); pointer-events: none; }
 .event.flash { animation: flash 1.2s ease-out; }
 @keyframes flash { 0% { box-shadow: 0 0 0 4px rgba(26,115,232,.6); } 100% { box-shadow: 0 0 0 0 rgba(26,115,232,0); } }
 
@@ -184,6 +201,11 @@ svg { fill: currentColor; display: block; }
   position: fixed; z-index: 50; width: 360px; background: #fff; border-radius: 8px; padding: 16px 20px 20px;
   box-shadow: 0 24px 38px 3px rgba(0,0,0,.14), 0 9px 46px 8px rgba(0,0,0,.12), 0 11px 15px -7px rgba(0,0,0,.2);
 }
+.popover { max-width: calc(100vw - 16px); }
+.popover .pnew-when { font: 400 14px Roboto, sans-serif; color: var(--text); margin: -4px 0 14px 4px; }
+.popover .pnew-form { box-shadow: none; border: 1px solid var(--line); }
+.popover .pnew-form:focus-within { border-color: var(--blue); box-shadow: 0 0 0 1px var(--blue); }
+.popover .pnew-status { padding-left: 4px; }
 .popover .ptop { display: flex; justify-content: flex-end; margin: -8px -12px 0 0; }
 .popover .prow { display: flex; gap: 16px; align-items: flex-start; }
 .popover .swatch { width: 14px; height: 14px; border-radius: 4px; margin-top: 6px; flex-shrink: 0; }
