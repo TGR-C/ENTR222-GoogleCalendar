@@ -2106,7 +2106,9 @@
     const key = focusIt ? seqKey(focusIt) + "@" + dayKey(refDay) : "";
     if (key !== tl.lastKey) {
       tl.lastKey = key;
+      const dropped = pruneEmptySessions(tl.options);
       onTimelineFocus(tl.options);
+      if (dropped) renderWork();
     }
     updateWorkButton();
   }
@@ -2332,6 +2334,44 @@
 
   // ----- sessions -----
   const openSessions = () => Object.values(sessions).filter((s) => s.open).sort((a, b) => b.lastActive - a.lastActive);
+  // Sessions that have actually started (something was sent or attached). Only these appear in the switcher.
+  const activeSessions = () => openSessions().filter((s) => s.messages.length > 0 || work.pending.has(s.eventId));
+  // Clicked Work but nothing typed or sent yet.
+  function isEmptySession(id) {
+    const s = sessions[id];
+    if (!s || s.messages.length || work.pending.has(id)) return false;
+    const draft = id === work.displayed ? wk.text.value : work.drafts[id];
+    return !(draft || "").trim();
+  }
+  // Silently discard an empty session (no timeline movement).
+  function dropSession(id) {
+    delete sessions[id];
+    delete work.drafts[id];
+    work.unread.delete(id);
+    if (work.displayed === id) {
+      work.displayed = null;
+      wk.text.value = "";
+    }
+    saveSessions();
+  }
+  // The timeline moved away: empty sessions not on the new node end automatically.
+  function pruneEmptySessions(options) {
+    let droppedShown = false;
+    for (const s of openSessions()) {
+      if (options.includes(s.eventId) || !isEmptySession(s.eventId)) continue;
+      if (s.eventId === work.displayed) droppedShown = true;
+      dropSession(s.eventId);
+    }
+    if (droppedShown) {
+      // Fall back to the most recent real session, without moving the timeline.
+      const next = activeSessions()[0];
+      if (next) {
+        work.displayed = next.eventId;
+        wk.text.value = work.drafts[next.eventId] || "";
+      }
+    }
+    return droppedShown;
+  }
 
   function startSession(eventId) {
     closeWorkMenu();
@@ -2348,7 +2388,9 @@
   function displaySession(eventId, { focusTimeline = false } = {}) {
     const s = sessions[eventId];
     if (!s) return;
-    if (work.displayed && work.displayed !== eventId) work.drafts[work.displayed] = wk.text.value;
+    const prev = work.displayed;
+    if (prev && prev !== eventId && isEmptySession(prev)) dropSession(prev);
+    else if (prev && prev !== eventId) work.drafts[prev] = wk.text.value;
     if (work.displayed !== eventId) wk.text.value = work.drafts[eventId] || "";
     work.displayed = eventId;
     work.unread.delete(eventId);
@@ -2367,7 +2409,7 @@
     delete work.drafts[eventId];
     if (work.displayed === eventId) {
       wk.text.value = "";
-      const next = openSessions()[0];
+      const next = activeSessions()[0];
       work.displayed = null;
       if (next) displaySession(next.eventId, { focusTimeline: true });
     }
@@ -2502,9 +2544,10 @@
     const ev = eventById(id);
     wk.dot.style.background = ev ? colorOf(ev) : "#9aa0a6";
     wk.title.textContent = sessionTitle(id);
-    const open = openSessions();
-    const others = open.filter((x) => x.eventId !== id);
-    wk.count.textContent = open.length > 1 ? String(open.length) : "";
+    const active = activeSessions();
+    const others = active.filter((x) => x.eventId !== id);
+    const total = others.length + (active.some((x) => x.eventId === id) ? 1 : 0);
+    wk.count.textContent = total > 1 ? String(total) : "";
     wk.count.classList.toggle("alert", others.some((x) => work.unread.has(x.eventId)));
     wk.expand.innerHTML = expanded ? ICON_COLLAPSE : ICON_EXPAND;
     wk.expand.title = expanded ? "Shrink to a small chat" : "Expand";
@@ -2608,7 +2651,9 @@
   // Session switcher.
   function renderSwitchMenu() {
     wk.menu.innerHTML = `<div class="wm-head">Active sessions</div>`;
-    for (const s of openSessions()) {
+    const list = activeSessions();
+    if (!list.length) wk.menu.insertAdjacentHTML("beforeend", `<div class="wm-empty">Nothing yet — send a message to start this session.</div>`);
+    for (const s of list) {
       const ev = eventById(s.eventId);
       const b = document.createElement("button");
       b.type = "button";
