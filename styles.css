@@ -101,13 +101,19 @@ svg { fill: currentColor; display: block; }
 .ai-input-wrap:focus-within { box-shadow: 0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15); }
 .ai-spark { color: var(--blue); flex-shrink: 0; margin-bottom: 4px; }
 .ai-input-wrap textarea {
-  flex: 1; border: 0; outline: 0; resize: none; font: 400 14px Roboto, sans-serif;
+  flex: 1; min-width: 0; border: 0; outline: 0; resize: none; font: 400 14px Roboto, sans-serif;
   line-height: 20px; max-height: 120px; padding: 4px 0; overflow: hidden; color: var(--text); background: transparent;
 }
 .ai-send {
   width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
   color: var(--blue); flex-shrink: 0;
 }
+.ai-mic { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 32px; border-radius: 50%; color: var(--text-2); }
+.ai-mic[hidden] { display: none; }
+.ai-mic:hover { background: #e8f0fe; }
+.ai-mic.listening { color: #d93025; background: #fce8e6; animation: mic-pulse 1.2s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 4px rgba(217,48,37,.16); } }
+@media (prefers-reduced-motion: reduce) { .ai-mic.listening { animation: none; } }
 .ai-send:hover { background: #e8f0fe; }
 .ai-send:disabled { color: #bdc1c6; cursor: default; background: none; }
 .ai-status { font-size: 12px; color: var(--text-2); padding: 8px 6px 0; min-height: 4px; line-height: 16px; }
@@ -522,7 +528,7 @@ body.task-dragging .allday-zone.zone-hot::after {
 
 /* ---------- Week view ---------- */
 .week-head {
-  display: grid; grid-template-columns: var(--gutter) repeat(7, 1fr); padding-right: var(--scrollbar, 0px);
+  display: grid; grid-template-columns: var(--gutter) repeat(var(--visible-days, 7), minmax(0, 1fr)); padding-right: var(--scrollbar, 0px);
   border-bottom: 1px solid var(--line); flex-shrink: 0;
 }
 .week-head .tz { font-size: 10px; color: var(--text-2); align-self: end; text-align: right; padding: 0 8px 4px 0; }
@@ -542,7 +548,7 @@ body.task-dragging .allday-zone.zone-hot::after {
 
 .week-body { flex: 1; overflow-y: auto; position: relative; }
 .week-grid {
-  display: grid; grid-template-columns: var(--gutter) repeat(7, 1fr);
+  display: grid; grid-template-columns: var(--gutter) repeat(var(--visible-days, 7), minmax(0, 1fr));
   height: calc(var(--hour) * 24); position: relative;
 }
 .gutter { position: relative; }
@@ -597,7 +603,18 @@ body.task-dragging .allday-zone.zone-hot::after {
 
 /* ---------- View toggling ---------- */
 .main[data-view="month"] .week-head, .main[data-view="month"] .week-body { display: none; }
-.main[data-view="week"] .month-view { display: none; }
+.main:not([data-view="month"]) .month-view, .main:not([data-view="year"]) .year-view { display: none; }
+.main[data-view="year"] .week-head, .main[data-view="year"] .week-body { display: none; }
+
+/* ---------- Year view ---------- */
+.year-view { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 24px; padding: 24px; align-content: start; }
+.year-month { min-width: 0; }
+.year-month-title { font-size: 16px; font-weight: 500; padding: 8px; border-radius: 4px; }
+.year-month-title:hover { background: var(--hover); }
+.year-month .mini-grid button { position: relative; min-height: 30px; }
+.year-month .has-events::after { content: ""; position: absolute; bottom: 2px; left: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.range-title.day-title { white-space: normal; }
+@media (max-width: 600px) { .year-view { padding: 12px; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); } .main[data-view="day"] { min-width: 0; } }
 
 /* ---------- Month view ---------- */
 .month-view { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }

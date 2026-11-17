@@ -86,7 +86,7 @@
   let events = loadEvents();
   migrateEvents();
   let tasks = loadTasks();          // [{id, title}] — the sidebar to-do list
-  let view = loadView();           // "week" | "month"
+  let view = loadView();           // "day" | "week" | "month" | "year"
   let focus = startOfDay(new Date()); // the date being looked at
   let weekStart = startOfWeek(focus);
   let monthStart = new Date(focus.getFullYear(), focus.getMonth(), 1);
@@ -176,7 +176,7 @@
     return { start: toISO(d), end: toISO(addDays(d, days)), allDay: true };
   }
   function loadView() {
-    try { return localStorage.getItem(VIEW_KEY) === "month" ? "month" : "week"; } catch { return "week"; }
+    try { const v = localStorage.getItem(VIEW_KEY); return ["day", "week", "month", "year"].includes(v) ? v : "week"; } catch { return "week"; }
   }
   function saveEvents() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(events.filter(notDemo))); } catch { /* ignore */ }
@@ -226,23 +226,32 @@
   }
 
   // ---------- rendering ----------
+  const timeView = () => view === "day" || view === "week";
+  const visibleDays = () => ({ start: view === "day" ? startOfDay(focus) : weekStart, count: view === "day" ? 1 : 7 });
+
   function render() {
     updateTaskSchedules();
     if (typeof updateMeetWarnings === "function" && meetsReady) updateMeetWarnings();
     el.main.dataset.view = view;
-    el.viewLabel.textContent = view === "month" ? "Month" : "Week";
+    el.viewLabel.textContent = view[0].toUpperCase() + view.slice(1);
+    el.main.style.setProperty("--visible-days", visibleDays().count);
+    $("prevBtn").setAttribute("aria-label", `Previous ${view}`);
+    $("nextBtn").setAttribute("aria-label", `Next ${view}`);
     renderHeader();
     refreshMain();
     renderMini();
   }
   // Re-draw only the main area (used on resize, every minute, and after drags).
   function refreshMain() {
-    if (view === "month") renderMonth();
+    if (view === "year") renderYear();
+    else if (view === "month") renderMonth();
     else renderGrid();
   }
 
   function renderHeader() {
+    el.rangeTitle.classList.toggle("day-title", view === "day");
     el.logoDate.textContent = new Date().getDate();
+    if (view === "year") { el.rangeTitle.textContent = focus.getFullYear(); return; }
     if (view === "month") {
       el.rangeTitle.textContent = `${MONTHS[monthStart.getMonth()]} ${monthStart.getFullYear()}`;
       return;
@@ -254,20 +263,21 @@
     if (m1 === m2) title = `${MONTHS[m1]} ${y1}`;
     else if (y1 === y2) title = `${MONTHS[m1].slice(0, 3)} – ${MONTHS[m2].slice(0, 3)} ${y1}`;
     else title = `${MONTHS[m1].slice(0, 3)} ${y1} – ${MONTHS[m2].slice(0, 3)} ${y2}`;
-    el.rangeTitle.textContent = title;
+    el.rangeTitle.textContent = view === "day"
+      ? focus.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : title;
 
     const today = new Date();
     const offset = -today.getTimezoneOffset() / 60;
     let html = `<div class="tz">GMT${offset >= 0 ? "+" : ""}${offset}</div>`;
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(weekStart, i);
+    for (let i = 0; i < visibleDays().count; i++) {
+      const d = addDays(visibleDays().start, i);
       // The whole column header (name, number, all-day row) is the all-day drop zone.
       html += `<div class="day-head allday-zone${sameDay(d, today) ? " today" : ""}" data-day="${i}">
-        <div class="dname">${DAY_SHORT[i]}</div><div class="dnum">${d.getDate()}</div><div class="allday-list"></div></div>`;
+        <div class="dname">${DAY_SHORT[d.getDay()]}</div><button type="button" class="dnum" data-open-day="${dayKey(d)}" aria-label="Open ${dayKey(d)} in Day view">${d.getDate()}</button><div class="allday-list"></div></div>`;
     }
     el.weekHead.innerHTML = html;
     el.weekHead.querySelectorAll(".day-head").forEach((head, i) => {
-      const d = addDays(weekStart, i);
+      const d = addDays(visibleDays().start, i);
       const list = head.querySelector(".allday-list");
       eventsOnDay(d).filter(({ ev }) => ev.allDay).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, d)));
     });
@@ -289,8 +299,8 @@
     grid.appendChild(gutter);
 
     const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const day = addDays(weekStart, i);
+    for (let i = 0; i < visibleDays().count; i++) {
+      const day = addDays(visibleDays().start, i);
       const col = document.createElement("div");
       col.className = "day-col";
 
@@ -403,14 +413,14 @@
     el.miniTitle.textContent = `${MONTHS[m]} ${y}`;
     const first = startOfWeek(new Date(y, m, 1));
     const today = new Date();
-    const weekEnd = addDays(weekStart, 7);
+    const weekEnd = addDays(visibleDays().start, visibleDays().count);
     let html = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<div class="dow">${d}</div>`).join("");
     for (let i = 0; i < 42; i++) {
       const d = addDays(first, i);
       const cls = [
         d.getMonth() !== m ? "other" : "",
         sameDay(d, today) ? "today"
-          : view === "week" && d >= weekStart && d < weekEnd ? "in-week"
+          : timeView() && d >= visibleDays().start && d < weekEnd ? "in-week"
           : view === "month" && sameDay(d, focus) ? "in-week" : "",
       ].join(" ");
       html += `<button class="${cls}" data-date="${dayKey(d)}">${d.getDate()}</button>`;
@@ -418,11 +428,102 @@
     el.miniGrid.innerHTML = html;
   }
 
+  function renderYear() {
+    const root = $("yearView"), year = focus.getFullYear(), today = new Date();
+    root.innerHTML = "";
+    for (let m = 0; m < 12; m++) {
+      const month = document.createElement("section");
+      month.className = "year-month";
+      const title = document.createElement("button");
+      title.className = "year-month-title";
+      title.textContent = MONTHS[m];
+      title.onclick = () => { goToDate(new Date(year, m, 1), false); setView("month"); };
+      month.appendChild(title);
+      const grid = document.createElement("div");
+      grid.className = "mini-grid";
+      grid.innerHTML = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<div class="dow">${d}</div>`).join("");
+      const first = startOfWeek(new Date(year, m, 1));
+      for (let i = 0; i < 42; i++) {
+        const date = addDays(first, i), button = document.createElement("button");
+        button.textContent = date.getDate();
+        button.classList.toggle("other", date.getMonth() !== m);
+        button.classList.toggle("today", sameDay(date, today));
+        button.classList.toggle("has-events", eventsOnDay(date).length > 0);
+        button.setAttribute("aria-label", date.toLocaleDateString(undefined, { dateStyle: "full" }));
+        button.onclick = () => { goToDate(date, false); setView("day"); };
+        grid.appendChild(button);
+      }
+      month.appendChild(grid);
+      root.appendChild(month);
+    }
+  }
+
   // ---------- popover ----------
   const FINE_POINTER = !window.matchMedia("(pointer: coarse)").matches; // not a touch screen
   const CLOSE_BTN = `<div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button></div>`;
+
+  // One dictation session across the sidebar, quick-add and popover bars.
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let dictation = null;
+  function stopDictation(container = null) {
+    const session = dictation;
+    if (!session || (container && !container.contains(session.input))) return;
+    dictation = null;
+    session.button.classList.remove("listening");
+    session.button.setAttribute("aria-pressed", "false");
+    session.recognition.stop();
+  }
+  function bindDictation(form, input, report) {
+    const button = form.querySelector(".ai-mic");
+    if (!SpeechRecognition) return;
+    button.hidden = false;
+    button.addEventListener("click", () => {
+      if (dictation && dictation.button === button) { dictation.recognition.stop(); return; }
+      stopDictation();
+      if (input.readOnly || input.disabled) return;
+      const recognition = new SpeechRecognition();
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.lang = navigator.language || "en-US";
+      const base = input.value, prefix = base && !/\s$/.test(base) ? base + " " : base;
+      let finalText = "";
+      const session = { recognition, input, button };
+      dictation = session;
+      const resize = () => input.dispatchEvent(new Event("input", { bubbles: true }));
+      recognition.onresult = (e) => {
+        if (dictation !== session) return;
+        let interim = "";
+        finalText = "";
+        for (let i = 0; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+          else interim += e.results[i][0].transcript;
+        }
+        input.value = prefix + finalText + interim;
+        resize();
+      };
+      recognition.onerror = (e) => {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") report("Microphone access was blocked.");
+      };
+      recognition.onend = () => {
+        if (dictation !== session) return;
+        dictation = null;
+        button.classList.remove("listening");
+        button.setAttribute("aria-pressed", "false");
+        input.value = finalText ? prefix + finalText : base;
+        resize();
+      };
+      button.classList.add("listening");
+      button.setAttribute("aria-pressed", "true");
+      input.focus();
+      try { recognition.start(); } catch {
+        stopDictation();
+        report("Could not start dictation.");
+      }
+    });
+    form.addEventListener("submit", () => stopDictation(form));
+  }
 
   // The pill-shaped "describe it" input used in popovers. onSubmit(text) returns the API
   // reply; if Claude changed nothing (e.g. it asked a question) the reply is shown inline.
@@ -433,6 +534,7 @@
       <form class="ai-input-wrap pnew-form" autocomplete="off">
         <svg class="ai-spark" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
         <textarea rows="1"></textarea>
+        <button type="button" class="ai-mic" aria-label="Dictate" title="Dictate (speak instead of typing)" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
         <button type="submit" class="ai-send" aria-label="Send">
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
@@ -440,6 +542,7 @@
       <div class="ai-status pnew-status"></div>`;
     const form = wrap.querySelector("form"), input = wrap.querySelector("textarea");
     const status = wrap.querySelector(".pnew-status"), send = wrap.querySelector(".ai-send");
+    bindDictation(form, input, (message) => { status.textContent = message; status.classList.add("error"); });
     input.placeholder = placeholder;
     input.setAttribute("aria-label", placeholder);
     status.textContent = hint;
@@ -449,6 +552,7 @@
       input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
     });
     const submit = async () => {
+      stopDictation(form);
       const text = input.value.trim();
       if (!text || busy) return;
       busy = true;
@@ -492,6 +596,7 @@
     const s = parseISO(ev.start), e = parseISO(ev.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" style="background:${colorOf(ev)}" aria-label="Change calendar" title="Change calendar"></button></div>
         <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div></div></div>
@@ -566,6 +671,7 @@
     if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
   }
   function hidePopover() {
+    stopDictation(el.popover);
     // Don't leave focus in a hidden input, or keyboard shortcuts would think we're still typing.
     // Hide first: an inline edit saves on blur, and must not see the popover as still open (it would re-open it).
     const focused = el.popover.contains(document.activeElement) ? document.activeElement : null;
@@ -604,6 +710,7 @@
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     if (!draft.cal || !calById(draft.cal)) draft.cal = defaultCalId();
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <form class="pnew-manual" autocomplete="off">
         <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" aria-label="Choose calendar" title="Choose calendar"></button></div>
@@ -716,8 +823,8 @@
         slot,
         eventId,
         now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
-        weekStart: dayKey(weekStart),
-        weekEnd: dayKey(addDays(weekStart, 6)),
+        weekStart: dayKey(visibleDays().start),
+        weekEnd: dayKey(addDays(visibleDays().start, visibleDays().count - 1)),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -726,6 +833,7 @@
   }
 
   async function submitCommand(text) {
+    stopDictation(el.aiForm);
     const command = text.trim();
     if (!command) return;
     setBusy(true);
@@ -750,14 +858,14 @@
   const colAtX = (x) => {
     const cols = dayCols();
     let i = cols.findIndex((c) => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
-    if (i === -1) i = x < cols[0].getBoundingClientRect().left ? 0 : 6;
+    if (i === -1) i = x < cols[0].getBoundingClientRect().left ? 0 : cols.length - 1;
     return i;
   };
   const minuteAtY = (y) => (y - el.weekGrid.getBoundingClientRect().top) / hourPx() * 60;
   const snap = (m, fn = Math.round) => fn(m / SNAP) * SNAP;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   // Wall-clock minutes after local midnight of that day (Date rolls past 1440 into the next day), so DST days stay right.
-  const atMinute = (dayIdx, min) => { const d = addDays(weekStart, dayIdx); d.setHours(0, min, 0, 0); return d; };
+  const atMinute = (dayIdx, min) => { const d = addDays(visibleDays().start, dayIdx); d.setHours(0, min, 0, 0); return d; };
   const atDayMinute = (day, min) => { const d = startOfDay(day); d.setHours(0, min, 0, 0); return d; };
 
   function setBlockTime(block, s, e) {
@@ -789,7 +897,7 @@
         duration: en - s, newStart: s, newEnd: en,
         // where inside the event the pointer grabbed it (minutes from event start)
         // (measured from the grabbed segment's own day: a continuation segment starts at 00:00)
-        grab: pointerMin - (sameDay(s, addDays(weekStart, dayIdx)) ? s.getHours() * 60 + s.getMinutes() : 0),
+        grab: pointerMin - (sameDay(s, addDays(visibleDays().start, dayIdx)) ? s.getHours() * 60 + s.getMinutes() : 0),
       };
     } else {
       // First click on empty space while a popover is open just closes it (like Google).
@@ -1003,8 +1111,9 @@
     const target = actions.find((a) => a.type !== "delete");
     if (target) {
       const d = parseISO(target.start);
-      const visible = view === "week"
-        ? d >= weekStart && d < addDays(weekStart, 7)
+      const visible = timeView()
+        ? d >= visibleDays().start && d < addDays(visibleDays().start, visibleDays().count)
+        : view === "year" ? d.getFullYear() === focus.getFullYear()
         : d.getMonth() === monthStart.getMonth() && d.getFullYear() === monthStart.getFullYear();
       if (!visible) goToDate(d, false);
     }
@@ -1164,6 +1273,7 @@
   function showDayPopover(day, anchor) {
     clearDraft();
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `
       <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
@@ -1529,10 +1639,10 @@
     const col = n && n.closest(".day-col");
     const cell = n && n.closest(".mcell");
     if (zone) {
-      const date = view === "week" ? addDays(weekStart, Number(zone.dataset.day)) : parseISO(zone.closest(".mcell").dataset.date);
+      const date = timeView() ? addDays(visibleDays().start, Number(zone.dataset.day)) : parseISO(zone.closest(".mcell").dataset.date);
       zone.classList.add("zone-hot");
       t.target = { allDay: true, date };
-    } else if (view === "week" && col) {
+    } else if (timeView() && col) {
       const dayIdx = Number(col.dataset.day);
       const startMin = clamp(snap(minuteAtY(t.y), Math.floor), 0, 1440 - 60);
       const start = atMinute(dayIdx, startMin);
@@ -1562,7 +1672,7 @@
   // Scroll the week grid while dragging near its top or bottom edge.
   function autoScroll() {
     if (!tdrag || !tdrag.moved) return;
-    if (view === "week") {
+    if (timeView()) {
       const r = el.weekBody.getBoundingClientRect();
       // Only over the grid itself (not while passing over the header or sidebar).
       const over = tdrag.x > r.left && tdrag.x < r.right && tdrag.y > r.top - 4 && tdrag.y < r.bottom + 40;
@@ -1625,6 +1735,13 @@
 
   // ----- all-day events in the week header: click for details, drag to another day -----
   let hdrag = null;
+  el.weekHead.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-open-day]");
+    if (!button || suppressClick || wtm.active) return;
+    goToDate(parseISO(button.dataset.openDay), false);
+    setView("day");
+    render();
+  });
   el.weekHead.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || drag || tdrag || e.target.closest(".echeck")) return;
     const chip = e.target.closest(".mchip");
@@ -1657,7 +1774,7 @@
     suppressClick = true;
     setTimeout(() => (suppressClick = false), 0);
     if (!d.moved) { if (!cancelled) showPopover(d.ev, d.chip); return; }
-    const target = d.over ? addDays(weekStart, Number(d.over.dataset.day)) : parseISO(d.from);
+    const target = d.over ? addDays(visibleDays().start, Number(d.over.dataset.day)) : parseISO(d.from);
     const shift = Math.round((startOfDay(target) - parseISO(d.from)) / 86400000);
     if (cancelled || !shift) { renderHeader(); return; }
     pushUndo();
@@ -1729,6 +1846,7 @@
     const p = el.popover;
     const isNew = !cal;
     let color = cal ? cal.color : PALETTE.find((k) => !calendars.some((c) => c.color === k)) || "peacock";
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <div class="cal-editor">
         <div class="ce-title">${isNew ? "New calendar" : "Edit calendar"}</div>
@@ -1882,6 +2000,8 @@
     if (doRender) render();
   }
   function step(dir) {
+    if (view === "day") return goToDate(addDays(focus, dir));
+    if (view === "year") return goToDate(new Date(focus.getFullYear() + dir, focus.getMonth(), 1));
     if (view === "week") return goToDate(addDays(weekStart, 7 * dir));
     const m = new Date(monthStart.getFullYear(), monthStart.getMonth() + dir, 1);
     const today = new Date();
@@ -1892,13 +2012,14 @@
     try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ }
   }
   function setView(v) {
-    if (v === view) return;
+    if (!["day", "week", "month", "year"].includes(v) || v === view) return;
     if (wtm.active && v !== "week") return; // Whentomeet paints over the week view
+    stopDictation();
     hidePopover();
     view = v;
     saveViewPref();
     render();
-    if (view === "week") el.weekBody.scrollTop = hourPx() * 7.5;
+    if (timeView()) el.weekBody.scrollTop = hourPx() * 7.5;
   }
 
   // ---------- modes: Calendar / Action Timeline ----------
@@ -1909,6 +2030,7 @@
   const modeEl = { tabs: [...document.querySelectorAll(".mode-tab")] };
 
   function setMode(m) {
+    stopDictation();
     mode = m;
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
@@ -1932,7 +2054,7 @@
       render();
       updateHubSync();
       // If the week view was hidden when the page loaded, it never got its usual starting scroll position.
-      if (view === "week" && el.weekBody.scrollTop === 0) el.weekBody.scrollTop = hourPx() * 7.5;
+      if (timeView() && el.weekBody.scrollTop === 0) el.weekBody.scrollTop = hourPx() * 7.5;
     }
   }
   // One click switches mode; ← / → move between the tabs from the keyboard.
@@ -3296,6 +3418,7 @@
 
   // ----- Whentomeet mode -----
   function enterMeet(id) {
+    stopDictation();
     const m = meetById(id);
     if (!m) return;
     if (wtm.wizard) { wtm.wizard = null; renderWizard(); }
@@ -3581,6 +3704,7 @@
     p.hidden = !m;
     if (!m) return;
     const people = 1 + m.members.length;
+    stopDictation(el.popover);
     p.innerHTML = `
       <div class="wtm-top">
         <button type="button" class="wtm-block" title="Back to the normal calendar">${MEET_ICON}<span class="wtm-pt"><b></b><small></small></span></button>
@@ -4891,7 +5015,7 @@
     goToDate(u.focus, false);
     setSidebar(u.sidebarOpen);
     render();
-    if (view === "week") el.weekBody.scrollTop = u.scroll;
+    if (timeView()) el.weekBody.scrollTop = u.scroll;
   }
 
   function tourTargets(st) {
@@ -5056,6 +5180,7 @@
     el.aiInput.focus();
   }
   function closeQuickAdd() {
+    stopDictation(el.aiForm);
     if (el.aiForm.parentNode !== aiHome.parent) aiHome.parent.insertBefore(el.aiForm, aiHome.next);
     el.qaCard.hidden = true;
     el.qaFab.hidden = false;
@@ -5087,6 +5212,7 @@
     setView(b.dataset.view);
   });
 
+  bindDictation(el.aiForm, el.aiInput, (message) => setStatus(escapeHTML(message), true));
   el.aiForm.addEventListener("submit", (e) => { e.preventDefault(); submitCommand(el.aiInput.value); });
   el.aiInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submitCommand(el.aiInput.value); }
@@ -5166,7 +5292,9 @@
     }
     if (e.altKey || e.shiftKey) return;
     // Google Calendar's single-key shortcuts.
-    if (key === "w") setView("week");
+    if (key === "d") setView("day");
+    else if (key === "y") setView("year");
+    else if (key === "w") setView("week");
     else if (key === "m") setView("month");
     else if (key === "t") goToDate(new Date());
     else if (key === "j" || key === "n") step(1);
@@ -5178,7 +5306,7 @@
     if (mode === "timeline") { if (!tl.drag) drawTimeline(); }
     else if (!dragging()) refreshMain();
   });
-  setInterval(() => { if (!dragging() && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
+  setInterval(() => { if (!dragging() && timeView()) renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   renderTasks();

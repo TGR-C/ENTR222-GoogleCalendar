@@ -9,12 +9,18 @@ create / update / delete actions.
 
 You can also work with the grid directly:
 
+- **Voice input**: use the microphone beside Send in the AI box (including quick-add and event popups)
+  to dictate in supported browsers. Review the text, then press Enter or Send; dictation never auto-sends.
 - **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
 - **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
   describe it, and Claude fills in the title/details using the slot you picked — or fill in the title,
   location, and calendar yourself (like the event popup) and press Save (month view: saves as all-day).
 - **Click an event** to see its details and describe a change right there ("move to 3pm",
   "make it 2 hours", "rename to Design review", "delete it"); Claude knows which event you mean.
+- **Day view**: a single day with the same time-grid editing, all-day events, task drops, and edge scrolling
+  as Week. Click a week header’s date number to open that day.
+- **Year view**: twelve small month calendars mark today and days with events. Click a date for Day view
+  or a month name for Month view. Use the top-right menu or **D / W / M / Y** for Day / Week / Month / Year.
 - **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
   day to create one (include a time in the description), click "N more" to see a full day, click a date
   number to open that week.
