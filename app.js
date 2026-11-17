@@ -42,6 +42,12 @@
     "ENTR 222 lecture": "cal-classes", "Office hours": "cal-classes",
     "Lunch with Alex": "cal-personal", "Dinner": "cal-personal",
     "Gym": "cal-fitness", "Hike": "cal-fitness",
+    "Coffee with mentor": "cal-startup", "Investor call": "cal-startup", "Market research": "cal-startup",
+    "Demo day": "cal-startup",
+    "Study group": "cal-classes", "ENTR 222 midterm": "cal-classes",
+    "Meal prep": "cal-personal", "Movie night": "cal-personal", "Brunch with family": "cal-personal",
+    "Lunch with Priya": "cal-personal", "Team dinner": "cal-personal",
+    "Yoga": "cal-fitness", "Soccer game": "cal-fitness",
   };
   const TASK_KEY = "nl-calendar-tasks-v1";
   const VIEW_KEY = "nl-calendar-view";
@@ -193,6 +199,29 @@
       mk("Dinner", 5, 19, 0, 20, 30),
       mk("Hike", 6, 9, 0, 12, 0, "Trailhead"),
       { id: uid(), title: "Pitch deck due", ...allDaySpan(addDays(ws, 5)), cal: "cal-startup", location: "" },
+      mk("Meal prep", 0, 17, 0, 18, 0),
+      mk("Coffee with mentor", 1, 16, 0, 16, 45, "Campus café"),
+      mk("Study group", 2, 18, 0, 19, 30, "Library, 3rd floor"),
+      mk("Yoga", 4, 7, 30, 8, 30, "Campus rec center"),
+      mk("Investor call", 4, 11, 0, 11, 45, "Zoom"),
+      mk("Movie night", 6, 19, 30, 22, 0),
+      // next week
+      mk("Brunch with family", 7, 11, 0, 12, 30),
+      mk("Team standup", 8, 9, 30, 10, 0, "Zoom"),
+      mk("ENTR 222 lecture", 8, 13, 0, 14, 30, "Room 104"),
+      mk("Market research", 8, 16, 0, 17, 30),
+      mk("Gym", 9, 7, 0, 8, 0, "Campus rec center"),
+      mk("Project sync", 9, 11, 0, 12, 0),
+      mk("Study group", 9, 18, 0, 19, 30, "Library, 3rd floor"),
+      mk("Lunch with Priya", 10, 12, 0, 13, 0, "Campus café"),
+      mk("ENTR 222 midterm", 10, 13, 0, 14, 30, "Room 104"),
+      mk("Customer interview", 10, 15, 30, 16, 15, "Zoom"),
+      mk("Yoga", 11, 7, 30, 8, 30, "Campus rec center"),
+      mk("Pitch practice", 11, 10, 0, 11, 30),
+      mk("Office hours", 11, 15, 0, 16, 30),
+      mk("Team dinner", 12, 18, 30, 20, 30, "Luigi's"),
+      mk("Soccer game", 13, 10, 0, 12, 0, "North field"),
+      { id: uid(), title: "Demo day", ...allDaySpan(addDays(ws, 12)), cal: "cal-startup", location: "" },
     ];
   }
 
