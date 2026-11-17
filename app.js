@@ -1842,6 +1842,9 @@
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
     modeEl.label.textContent = m === "timeline" ? "Action timeline" : "Calendar";
+    const menuBtn = $("menuBtn");
+    menuBtn.setAttribute("aria-label", m === "timeline" ? "AI chat + vertical timeline" : "Main menu");
+    menuBtn.title = m === "timeline" ? "AI chat + vertical timeline" : "Main menu";
     modeEl.menu.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === m)));
     closeModeMenu();
     hidePopover();
@@ -2348,7 +2351,6 @@
       const next = activeSessions()[0];
       if (next) displaySession(next.eventId, { focusTimeline: true });
     }
-    if (!work.displayed) setExpanded(false);
     renderWork();
     setStatus(withFiles ? "Deleted the AI chat and its files." : "Deleted the AI chat.");
   }
@@ -2440,7 +2442,6 @@
       if (next) displaySession(next.eventId, { focusTimeline: true });
     }
     saveSessions();
-    if (!work.displayed) setExpanded(false);
     renderWork();
   }
 
@@ -2543,11 +2544,15 @@
   function setExpanded(on) {
     const was = tlEl.root.classList.contains("expanded");
     tlEl.root.classList.toggle("expanded", !!on);
+    $("menuBtn").setAttribute("aria-pressed", String(!!on && mode === "timeline"));
     if (was === !!on) return;
     closeWorkMenu();
     wk.menu.hidden = true;
+    // Opening the split view with no chat showing: bring up the most recent session, if any.
+    if (on && !work.displayed && activeSessions().length) { displaySession(activeSessions()[0].eventId, { focusTimeline: true }); return; }
     if (on && work.displayed) focusTimelineOn(work.displayed);
     else if (mode === "timeline") drawTimeline();
+    renderWork();
   }
 
   const fmtMsg = (t) => escapeHTML(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -2556,12 +2561,14 @@
     const expanded = tlEl.root.classList.contains("expanded");
     if (!s || !s.open) {
       work.displayed = null;
-      wk.panel.hidden = true;
       tlEl.root.classList.remove("tl-chat-bar", "tl-chat-compact");
-      if (expanded) setExpanded(false);
+      // Expanded with no session (opened from ☰): show a hint in the chat half.
+      wk.panel.hidden = !expanded;
+      wk.panel.classList.toggle("idle", expanded);
       if (mode === "timeline" && !tl.drag) drawTimeline();
       return;
     }
+    wk.panel.classList.remove("idle");
     const id = s.eventId;
     const hasMsgs = s.messages.length > 0;
     wk.panel.hidden = false;
@@ -2750,6 +2757,7 @@
     render();
   });
   $("menuBtn").onclick = () => {
+    if (mode === "timeline") { setExpanded(!tlEl.root.classList.contains("expanded")); return; }
     el.sidebar.classList.toggle(isMobile() ? "open" : "collapsed");
     syncQuickAdd();
     setTimeout(refreshMain, 220);

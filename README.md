@@ -58,7 +58,8 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
 - After the first message the bar becomes a small chat box. Each event/task has its own chat; asking the AI
   to draft something (agenda, notes, email, checklist…) creates a file **attached to the event**. You can
   also attach your own text files (📎) for the AI to read.
-- **Expand** turns the chat into the left half of the screen with the timeline vertical on the right.
+- **Expand** (or **☰** at the top left in Action timeline mode) turns the chat into the left half of the
+  screen with the timeline vertical on the right; ☰ also opens this view when no chat has started yet.
   Browsing the timeline doesn't disturb the chat; a **Work** button on another event starts a new session.
 - Several sessions can run at once. The **session switcher** (chat header) jumps between them and moves the
   timeline to that event; navigating the timeline onto an event with an open session shows its chat.

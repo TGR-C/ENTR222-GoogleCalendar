@@ -446,7 +446,6 @@ body.task-dragging .allday-zone.zone-hot::after {
 body[data-mode="timeline"] .layout,
 body[data-mode="timeline"] .topbar-center,
 body[data-mode="timeline"] .view-switch,
-body[data-mode="timeline"] #menuBtn,
 body[data-mode="timeline"] .quick-add { display: none !important; }
 body[data-mode="timeline"] .topbar-left { width: auto; padding-left: 8px; }
 body[data-mode="timeline"] .topbar-right { margin-left: auto; }
@@ -700,6 +699,18 @@ body[data-mode="timeline"] .topbar-right { margin-left: auto; }
 .wk-input textarea { flex: 1; border: 0; outline: 0; resize: none; font: 400 14px Roboto, sans-serif; line-height: 20px; padding: 6px 4px; max-height: 140px; background: transparent; color: var(--text); }
 .wk-attach, .wk-cancel { color: #5f6368; flex-shrink: 0; width: 32px !important; height: 32px !important; }
 .wk-cancel { display: none; }
+
+/* split view opened from ☰ with no chat yet */
+.wk-idle { display: none; }
+.wk-panel.idle > *:not(.wk-idle) { display: none; }
+.wk-panel.idle .wk-idle {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  flex: 1; padding: 32px; gap: 10px; color: var(--text-2);
+}
+.wk-idle svg { fill: #8ab4f8; }
+.wk-idle-title { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; }
+.wk-idle-text { font-size: 14px; line-height: 1.5; max-width: 340px; }
+body[data-mode="timeline"] #menuBtn[aria-pressed="true"] { background: #e8f0fe; color: #1967d2; }
 
 /* bar-only: just the input until the first message is sent */
 .timeline.tl-chat-bar .wk-head, .timeline.tl-chat-bar .wk-msgs, .timeline.tl-chat-bar .wk-files { display: none; }
