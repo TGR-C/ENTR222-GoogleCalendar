@@ -24,6 +24,7 @@
     viewBtn: $("viewBtn"), viewMenu: $("viewMenu"), viewLabel: $("viewLabel"),
     taskList: $("taskList"), taskAdd: $("taskAdd"), taskEmpty: $("taskEmpty"),
     calList: $("calList"), calAdd: $("calAdd"),
+    quickAdd: $("quickAdd"), qaFab: $("qaFab"), qaCard: $("qaCard"),
   };
   const CAL_KEY = "nl-calendar-cals-v1";
   // Starter calendars (tags). Fixed ids so sample events and older saved data can be mapped onto them.
@@ -1716,10 +1717,44 @@
     render();
   });
   $("menuBtn").onclick = () => {
-    const mobile = window.matchMedia("(max-width: 800px)").matches;
-    el.sidebar.classList.toggle(mobile ? "open" : "collapsed");
+    el.sidebar.classList.toggle(isMobile() ? "open" : "collapsed");
+    syncQuickAdd();
     setTimeout(refreshMain, 220);
   };
+
+  // ----- quick add: when the sidebar is closed, a round + stands in for the input bar -----
+  const isMobile = () => window.matchMedia("(max-width: 800px)").matches;
+  const sidebarClosed = () => (isMobile() ? !el.sidebar.classList.contains("open") : el.sidebar.classList.contains("collapsed"));
+  // Where the input bar normally lives, so it can be put back.
+  const aiHome = { parent: el.aiForm.parentNode, next: el.aiForm.nextSibling };
+  const quickAddOpen = () => !el.qaCard.hidden;
+
+  function openQuickAdd() {
+    hidePopover();
+    el.qaCard.appendChild(el.aiForm); // move the real bar (with its status, Undo, hints) into the card
+    el.qaCard.hidden = false;
+    el.qaFab.hidden = true;
+    autosize();
+    el.aiInput.focus();
+  }
+  function closeQuickAdd() {
+    if (el.aiForm.parentNode !== aiHome.parent) aiHome.parent.insertBefore(el.aiForm, aiHome.next);
+    el.qaCard.hidden = true;
+    el.qaFab.hidden = false;
+    autosize();
+  }
+  function syncQuickAdd() {
+    const closed = sidebarClosed();
+    if (!closed) closeQuickAdd();
+    el.quickAdd.hidden = !closed;
+  }
+  el.qaFab.addEventListener("click", (e) => { e.stopPropagation(); openQuickAdd(); });
+  // Clicking elsewhere folds the card back into the + (unless something is typed or a request is running).
+  document.addEventListener("pointerdown", (e) => {
+    if (!quickAddOpen() || el.quickAdd.contains(e.target)) return;
+    if (el.aiInput.value.trim() || el.aiSend.disabled) return;
+    closeQuickAdd();
+  });
 
   el.viewBtn.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1773,6 +1808,11 @@
   const isTyping = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      if (quickAddOpen() && el.quickAdd.contains(e.target) && !el.aiSend.disabled) {
+        closeQuickAdd();
+        el.qaFab.focus();
+        return;
+      }
       if (draft) draft.busy = false;
       hidePopover();
       el.viewMenu.hidden = true;
@@ -1796,11 +1836,12 @@
     else if (key === "k" || key === "p") step(-1);
   });
   const dragging = () => drag || tdrag || hdrag;
-  window.addEventListener("resize", () => { if (!dragging()) refreshMain(); });
+  window.addEventListener("resize", () => { syncQuickAdd(); if (!dragging()) refreshMain(); });
   setInterval(() => { if (!dragging() && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   renderTasks();
   renderCalendars();
+  syncQuickAdd();
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();
