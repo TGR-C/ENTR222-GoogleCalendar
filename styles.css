@@ -46,6 +46,20 @@ svg { fill: currentColor; display: block; }
   height: 36px; padding: 0 8px 0 16px; border: 1px solid var(--line); border-radius: 18px;
   display: flex; align-items: center; gap: 4px; font: 500 14px "Google Sans", Roboto, sans-serif;
 }
+/* ---------- View switcher ---------- */
+.view-switch { position: relative; }
+.view-pill:hover { background: var(--hover); }
+.view-menu {
+  position: absolute; right: 0; top: 42px; z-index: 45; background: #fff; border-radius: 4px; padding: 8px 0;
+  min-width: 180px; box-shadow: 0 2px 2px 0 rgba(0,0,0,.14), 0 3px 1px -2px rgba(0,0,0,.12), 0 1px 5px 0 rgba(0,0,0,.2);
+}
+.view-menu[hidden] { display: none; }
+.view-menu button {
+  display: flex; justify-content: space-between; width: 100%; padding: 0 16px; height: 40px; align-items: center;
+  font-size: 14px; text-align: left;
+}
+.view-menu button:hover { background: var(--hover); }
+.view-menu .kbd { color: var(--text-2); }
 .avatar {
   width: 32px; height: 32px; border-radius: 50%; background: #7b1fa2; color: #fff;
   display: grid; place-items: center; font-weight: 500;
@@ -196,6 +210,54 @@ svg { fill: currentColor; display: block; }
   content: ""; position: absolute; left: -6px; top: -5px; width: 12px; height: 12px; border-radius: 50%; background: #ea4335;
 }
 
+/* ---------- View toggling ---------- */
+.main[data-view="month"] .week-head, .main[data-view="month"] .week-body { display: none; }
+.main[data-view="week"] .month-view { display: none; }
+
+/* ---------- Month view ---------- */
+.month-view { flex: 1; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }
+.month-head { display: grid; grid-template-columns: repeat(7, 1fr); }
+.month-head div {
+  text-align: center; font-size: 11px; font-weight: 500; color: var(--text-2); letter-spacing: .8px;
+  padding-top: 6px; border-right: 1px solid var(--line);
+}
+.month-grid { flex: 1; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); min-height: 0; user-select: none; -webkit-user-select: none; }
+.mcell {
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: stretch; min-height: 0; overflow: hidden; padding-bottom: 2px;
+}
+.mcell.drop { background: #e8f0fe; }
+.mcell .mdate {
+  align-self: center; font-size: 12px; font-weight: 500; min-width: 24px; height: 24px; line-height: 24px;
+  padding: 0 4px; margin: 4px 0 2px; border-radius: 12px; color: var(--text);
+}
+.mcell .mdate:hover { background: var(--hover); }
+.mcell .mdate.today { background: var(--blue); color: #fff; }
+.mcell.other .mdate { color: var(--text-2); }
+.mlist { display: flex; flex-direction: column; min-height: 0; }
+.mchip {
+  height: 22px; display: flex; align-items: center; gap: 4px; padding: 0 6px; margin: 0 4px; border-radius: 4px;
+  font-size: 12px; white-space: nowrap; overflow: hidden; cursor: pointer; flex-shrink: 0; touch-action: none;
+}
+.mchip:hover { background: var(--hover); }
+.mchip .mdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.mchip .mtime { color: var(--text-2); flex-shrink: 0; }
+.mchip .mtitle { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.mchip.dragging { background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+.mchip.flash { animation: flash 1.2s ease-out; }
+.mchip.mdraft { background: var(--blue); color: #fff; font-weight: 500; cursor: default; }
+.mmore {
+  text-align: left; font-size: 12px; font-weight: 500; color: var(--text); padding: 0 8px; margin: 0 4px;
+  height: 22px; border-radius: 4px; flex-shrink: 0;
+}
+.mmore:hover { background: var(--hover); }
+.pday { text-align: center; margin-top: -20px; margin-bottom: 8px; }
+.pday-name { font-size: 11px; font-weight: 500; color: var(--text-2); letter-spacing: .8px; }
+.pday-num { font: 400 26px "Google Sans", Roboto, sans-serif; }
+.pday-list { display: flex; flex-direction: column; gap: 2px; max-height: 50vh; overflow-y: auto; }
+.pday-list .mchip { margin: 0; }
+.ai-status .redo { color: var(--blue); font-weight: 500; margin-left: 4px; font-size: 12px; }
+
 /* ---------- Popover ---------- */
 .popover {
   position: fixed; z-index: 50; width: 360px; background: #fff; border-radius: 8px; padding: 16px 20px 20px;
@@ -225,7 +287,9 @@ svg { fill: currentColor; display: block; }
     box-shadow: 0 8px 10px rgba(0,0,0,.2); margin-left: -290px; }
   .sidebar.open { margin-left: 0; }
   .topbar-left { width: auto; }
-  .logo-text, .view-pill { display: none; }
+  .logo-text { display: none; }
+  .view-pill { padding: 0 4px 0 10px; }
+  .mchip .mtime { display: none; }
   .range-title { font-size: 16px; }
   .day-head .dnum { font-size: 18px; width: 32px; height: 32px; line-height: 32px; }
 }

@@ -20,7 +20,10 @@
     miniTitle: $("miniTitle"), miniGrid: $("miniGrid"),
     aiForm: $("aiForm"), aiInput: $("aiInput"), aiSend: $("aiSend"), aiStatus: $("aiStatus"),
     aiHints: $("aiHints"), popover: $("popover"), toast: $("toast"), sidebar: $("sidebar"),
+    main: $("main"), monthHead: $("monthHead"), monthGrid: $("monthGrid"),
+    viewBtn: $("viewBtn"), viewMenu: $("viewMenu"), viewLabel: $("viewLabel"),
   };
+  const VIEW_KEY = "nl-calendar-view";
 
   // ---------- date helpers (all local time) ----------
   const pad = (n) => String(n).padStart(2, "0");
@@ -51,9 +54,13 @@
 
   // ---------- state ----------
   let events = loadEvents();
-  let weekStart = startOfWeek(new Date());
-  let miniMonth = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
+  let view = loadView();           // "week" | "month"
+  let focus = startOfDay(new Date()); // the date being looked at
+  let weekStart = startOfWeek(focus);
+  let monthStart = new Date(focus.getFullYear(), focus.getMonth(), 1);
+  let miniMonth = new Date(monthStart);
   let undoStack = [];
+  let redoStack = [];
   let flashIds = new Set();
   let draft = null;        // {start, end} slot picked by click-to-create
   let drag = null;         // active pointer interaction on the grid
@@ -64,7 +71,12 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) return JSON.parse(raw);
     } catch { /* ignore */ }
-    return seedEvents();
+    const seeded = seedEvents();
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
+    return seeded;
+  }
+  function loadView() {
+    try { return localStorage.getItem(VIEW_KEY) === "month" ? "month" : "week"; } catch { return "week"; }
   }
   function saveEvents() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(events)); } catch { /* ignore */ }
@@ -91,12 +103,24 @@
 
   // ---------- rendering ----------
   function render() {
+    el.main.dataset.view = view;
+    el.viewLabel.textContent = view === "month" ? "Month" : "Week";
     renderHeader();
-    renderGrid();
+    refreshMain();
     renderMini();
+  }
+  // Re-draw only the main area (used on resize, every minute, and after drags).
+  function refreshMain() {
+    if (view === "month") renderMonth();
+    else renderGrid();
   }
 
   function renderHeader() {
+    el.logoDate.textContent = new Date().getDate();
+    if (view === "month") {
+      el.rangeTitle.textContent = `${MONTHS[monthStart.getMonth()]} ${monthStart.getFullYear()}`;
+      return;
+    }
     const end = addDays(weekStart, 6);
     const y1 = weekStart.getFullYear(), y2 = end.getFullYear();
     const m1 = weekStart.getMonth(), m2 = end.getMonth();
@@ -105,7 +129,6 @@
     else if (y1 === y2) title = `${MONTHS[m1].slice(0, 3)} – ${MONTHS[m2].slice(0, 3)} ${y1}`;
     else title = `${MONTHS[m1].slice(0, 3)} ${y1} – ${MONTHS[m2].slice(0, 3)} ${y2}`;
     el.rangeTitle.textContent = title;
-    el.logoDate.textContent = new Date().getDate();
 
     const today = new Date();
     const offset = -today.getTimezoneOffset() / 60;
@@ -245,7 +268,9 @@
       const d = addDays(first, i);
       const cls = [
         d.getMonth() !== m ? "other" : "",
-        sameDay(d, today) ? "today" : (d >= weekStart && d < weekEnd ? "in-week" : ""),
+        sameDay(d, today) ? "today"
+          : view === "week" && d >= weekStart && d < weekEnd ? "in-week"
+          : view === "month" && sameDay(d, focus) ? "in-week" : "",
       ].join(" ");
       html += `<button class="${cls}" data-date="${dayKey(d)}">${d.getDate()}</button>`;
     }
@@ -264,7 +289,7 @@
       </button></div>
       <div class="prow"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div>
         <div><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>
-      <div class="phint">Drag to move, drag the bottom edge to resize, or describe a change in the box on the left — e.g. “move ${escapeQuotes(ev.title)} to 3pm”.</div>`;
+      <div class="phint">${view === "week" ? "Drag to move, drag the bottom edge to resize," : "Drag to another day to move it,"} or describe a change in the box on the left — e.g. “move ${escapeQuotes(ev.title)} to 3pm”.</div>`;
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     p.querySelector(".pwhen").textContent = `${dayStr} · ${fmtRange(s, e)}`;
     p.querySelector(".ploc").textContent = ev.location || "";
@@ -280,7 +305,7 @@
   function clearDraft() {
     if (!draft || draft.busy) return;
     draft = null;
-    el.weekGrid.querySelectorAll(".event.draft").forEach((n) => n.remove());
+    document.querySelectorAll(".draft").forEach((n) => n.remove());
   }
   const escapeQuotes = (s) => String(s).replace(/[<>&"]/g, "");
 
@@ -313,8 +338,12 @@
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
       </form>
-      <div class="ai-status pnew-status">e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”</div>`;
-    p.querySelector(".pnew-when").textContent = `${dayStr} · ${fmtRange(s, e)}`;
+      <div class="ai-status pnew-status"></div>`;
+    // Month view picks a day, not a time: the time comes from the description (default 9–10am).
+    p.querySelector(".pnew-when").textContent = draft.dayOnly ? dayStr : `${dayStr} · ${fmtRange(s, e)}`;
+    p.querySelector(".pnew-status").textContent = draft.dayOnly
+      ? "Include a time, e.g. “Dinner with Sam at 7pm” (defaults to 9am)"
+      : "e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”";
     p.querySelector("[data-close]").onclick = () => { draft.busy = false; hidePopover(); };
     const form = p.querySelector("form"), input = p.querySelector("textarea");
     const status = p.querySelector(".pnew-status"), send = p.querySelector(".ai-send");
@@ -347,7 +376,7 @@
     });
 
     p.hidden = false;
-    const anchor = el.weekGrid.querySelector(".event.draft");
+    const anchor = document.querySelector(".draft");
     if (anchor) placePopover(anchor);
     input.focus();
   }
@@ -509,7 +538,7 @@
     const newStart = toISO(d.mode === "move" ? d.newStart : parseISO(d.ev.start));
     const newEnd = toISO(d.newEnd);
     if (newStart === d.ev.start && newEnd === d.ev.end) { render(); return; }
-    undoStack.push(JSON.stringify(events));
+    pushUndo();
     d.ev.start = newStart;
     d.ev.end = newEnd;
     saveEvents();
@@ -527,7 +556,7 @@
 
   function applyActions(actions) {
     if (!actions.length) return [];
-    undoStack.push(JSON.stringify(events));
+    pushUndo();
     const changed = [];
     for (const a of actions) {
       const fields = { title: a.title, start: a.start, end: a.end, color: a.color, location: a.location || "" };
@@ -552,7 +581,10 @@
     const target = actions.find((a) => a.type !== "delete");
     if (target) {
       const d = parseISO(target.start);
-      if (d < weekStart || d >= addDays(weekStart, 7)) goToDate(d, false);
+      const visible = view === "week"
+        ? d >= weekStart && d < addDays(weekStart, 7)
+        : d.getMonth() === monthStart.getMonth() && d.getFullYear() === monthStart.getFullYear();
+      if (!visible) goToDate(d, false);
     }
     flashIds = new Set(changed.map((e) => e.id));
     render();
@@ -560,13 +592,30 @@
     return changed;
   }
 
-  function undo() {
-    const prev = undoStack.pop();
-    if (!prev) return;
-    events = JSON.parse(prev);
+  // Snapshot-based history. Any new change clears the redo stack.
+  const HISTORY_LIMIT = 100;
+  function pushUndo() {
+    undoStack.push(JSON.stringify(events));
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack = [];
+  }
+  function restore(snapshot) {
+    events = JSON.parse(snapshot);
     saveEvents();
+    hidePopover();
     render();
-    setStatus("Undone.");
+  }
+  function undo() {
+    if (!undoStack.length) { setStatus("Nothing to undo."); return; }
+    redoStack.push(JSON.stringify(events));
+    restore(undoStack.pop());
+    setStatus(`Undone. <button class="redo" type="button">Redo</button>`);
+  }
+  function redo() {
+    if (!redoStack.length) { setStatus("Nothing to redo."); return; }
+    undoStack.push(JSON.stringify(events));
+    restore(redoStack.pop());
+    setStatus(`Redone. <button class="undo" type="button">Undo</button>`);
   }
 
   const escapeHTML = (s) => String(s).replace(/[&<>"']/g, (c) =>
@@ -586,32 +635,236 @@
     el.aiInput.style.overflowY = el.aiInput.scrollHeight > 120 ? "auto" : "hidden";
   }
 
+  // ---------- month view ----------
+  const CHIP_H = 22; // px per event row in a month cell
+
+  function eventsOnDay(day) {
+    const ds = startOfDay(day), de = addDays(ds, 1);
+    return events
+      .map((ev) => ({ ev, s: parseISO(ev.start), e: parseISO(ev.end) }))
+      .filter(({ s, e }) => s < de && e > ds)
+      .sort((a, b) => a.s - b.s || b.e - a.e);
+  }
+
+  function monthRange() {
+    const first = startOfWeek(monthStart);
+    const lastOfMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+    const rows = Math.ceil((Math.round((lastOfMonth - first) / 86400000) + 1) / 7);
+    return { first, rows };
+  }
+
+  function chipEl(ev, s, day) {
+    const c = document.createElement("div");
+    c.className = "mchip" + (flashIds.has(ev.id) ? " flash" : "");
+    c.dataset.id = ev.id;
+    c.dataset.date = dayKey(day);
+    c.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
+    c.querySelector(".mdot").style.background = COLORS[ev.color] || COLORS.peacock;
+    // A multi-day event shows its start time only on the first day.
+    c.querySelector(".mtime").textContent = sameDay(s, day) ? fmtTime(s) : "";
+    c.querySelector(".mtitle").textContent = ev.title || "(No title)";
+    return c;
+  }
+
+  function renderMonth() {
+    const { first, rows } = monthRange();
+    const today = new Date();
+    el.monthHead.innerHTML = DAY_SHORT.map((d) => `<div>${d}</div>`).join("");
+    const grid = el.monthGrid;
+    grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+    grid.innerHTML = "";
+
+    const cells = [];
+    for (let i = 0; i < rows * 7; i++) {
+      const d = addDays(first, i);
+      const cell = document.createElement("div");
+      cell.className = "mcell" + (d.getMonth() !== monthStart.getMonth() ? " other" : "");
+      cell.dataset.date = dayKey(d);
+      const label = d.getDate() === 1 ? `${MONTHS[d.getMonth()].slice(0, 3)} 1` : d.getDate();
+      cell.innerHTML = `<button class="mdate${sameDay(d, today) ? " today" : ""}" title="Open this week">${label}</button><div class="mlist"></div>`;
+      grid.appendChild(cell);
+      cells.push({ cell, d });
+    }
+
+    // How many chips fit is decided by the actual cell height.
+    const cellH = cells[0].cell.clientHeight;
+    const fit = Math.max(1, Math.floor((cellH - 30) / CHIP_H));
+    for (const { cell, d } of cells) {
+      const list = cell.querySelector(".mlist");
+      const items = eventsOnDay(d);
+      const showDraft = draft && draft.dayOnly && sameDay(parseISO(draft.start), d);
+      const slots = fit - (showDraft ? 1 : 0);
+      const shown = items.length > slots ? Math.max(0, slots - 1) : items.length;
+      items.slice(0, shown).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, d)));
+      if (items.length > shown) {
+        const more = document.createElement("button");
+        more.className = "mmore";
+        more.textContent = `${items.length - shown} more`;
+        list.appendChild(more);
+      }
+      if (showDraft) {
+        const dc = document.createElement("div");
+        dc.className = "mchip mdraft draft";
+        dc.textContent = "(No title)";
+        list.appendChild(dc);
+      }
+    }
+  }
+
+  // "N more" popover: every event on that day.
+  function showDayPopover(day, anchor) {
+    clearDraft();
+    const p = el.popover;
+    p.innerHTML = `
+      <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button></div>
+      <div class="pday"><div class="pday-name">${DAY_SHORT[day.getDay()]}</div><div class="pday-num">${day.getDate()}</div></div>
+      <div class="pday-list"></div>`;
+    const list = p.querySelector(".pday-list");
+    eventsOnDay(day).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, day)));
+    list.addEventListener("click", (e) => {
+      const c = e.target.closest(".mchip");
+      const ev = c && events.find((x) => x.id === c.dataset.id);
+      if (ev) { e.stopPropagation(); showPopover(ev, anchor); }
+    });
+    p.querySelector("[data-close]").onclick = hidePopover;
+    p.hidden = false;
+    placePopover(anchor);
+  }
+
+  const cellAt = (x, y) => {
+    const n = document.elementFromPoint(x, y);
+    return n && n.closest(".mcell");
+  };
+
+  el.monthGrid.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || drag) return;
+    const cell = e.target.closest(".mcell");
+    if (!cell) return;
+    const chip = e.target.closest(".mchip:not(.draft)");
+    const base = { x0: e.clientX, y0: e.clientY, moved: false, cell };
+    if (chip) drag = { ...base, mode: "mmove", chip, ev: events.find((x) => x.id === chip.dataset.id), from: chip.dataset.date };
+    else if (e.target.closest(".mmore")) drag = { ...base, mode: "mmore", anchor: e.target.closest(".mmore") };
+    else if (e.target.closest(".mdate")) drag = { ...base, mode: "mdate" };
+    else if (!el.popover.hidden) { hidePopover(); drag = { mode: "dismiss" }; }
+    else drag = { ...base, mode: "mcreate" };
+    if (drag.mode === "mmove" && !drag.ev) { drag = null; return; }
+    el.monthGrid.setPointerCapture(e.pointerId);
+  });
+
+  el.monthGrid.addEventListener("pointermove", (e) => {
+    if (!drag || drag.mode !== "mmove") return;
+    if (!drag.moved) {
+      if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+      drag.moved = true;
+      hidePopover();
+      drag.chip.classList.add("dragging");
+    }
+    const target = cellAt(e.clientX, e.clientY);
+    if (target && target !== drag.over) {
+      el.monthGrid.querySelectorAll(".drop").forEach((n) => n.classList.remove("drop"));
+      target.classList.add("drop");
+      target.querySelector(".mlist").prepend(drag.chip);
+      drag.over = target;
+    }
+  });
+
+  function endMonthDrag(e, cancelled) {
+    if (!drag || !["mmove", "mmore", "mdate", "mcreate", "dismiss"].includes(drag.mode)) return;
+    const d = drag;
+    drag = null;
+    try { el.monthGrid.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+    if (d.mode === "dismiss") return;
+    if (cancelled) { renderMonth(); return; }
+
+    const date = parseISO(d.cell.dataset.date);
+    if (d.mode === "mdate") { view = "week"; saveViewPref(); goToDate(date); return; }
+    if (d.mode === "mmore") { showDayPopover(date, d.anchor); return; }
+    if (d.mode === "mcreate") {
+      draft = { start: toISO(new Date(date.getTime() + 9 * 3600000)), end: toISO(new Date(date.getTime() + 10 * 3600000)), dayOnly: true };
+      renderMonth();
+      showCreatePopover();
+      return;
+    }
+    // mmove
+    if (!d.moved) { showPopover(d.ev, d.chip); return; }
+    const target = d.over ? parseISO(d.over.dataset.date) : parseISO(d.from);
+    const shift = Math.round((target - parseISO(d.from)) / 86400000);
+    if (!shift) { renderMonth(); return; }
+    pushUndo();
+    d.ev.start = toISO(addDays(parseISO(d.ev.start), shift));
+    d.ev.end = toISO(addDays(parseISO(d.ev.end), shift));
+    saveEvents();
+    flashIds = new Set([d.ev.id]);
+    renderMonth();
+    flashIds = new Set();
+    setStatus(`Moved “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
+  el.monthGrid.addEventListener("pointerup", (e) => endMonthDrag(e, false));
+  el.monthGrid.addEventListener("pointercancel", (e) => endMonthDrag(e, true));
+
   // ---------- navigation ----------
   function goToDate(d, doRender = true) {
-    weekStart = startOfWeek(d);
-    miniMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    focus = startOfDay(d);
+    weekStart = startOfWeek(focus);
+    monthStart = new Date(focus.getFullYear(), focus.getMonth(), 1);
+    miniMonth = new Date(monthStart);
     if (doRender) render();
+  }
+  function step(dir) {
+    if (view === "week") return goToDate(addDays(weekStart, 7 * dir));
+    const m = new Date(monthStart.getFullYear(), monthStart.getMonth() + dir, 1);
+    const today = new Date();
+    // Land on today when moving into the current month, else on the 1st (like Google).
+    goToDate(m.getMonth() === today.getMonth() && m.getFullYear() === today.getFullYear() ? today : m);
+  }
+  function saveViewPref() {
+    try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ }
+  }
+  function setView(v) {
+    if (v === view) return;
+    hidePopover();
+    view = v;
+    saveViewPref();
+    render();
+    if (view === "week") el.weekBody.scrollTop = hourPx() * 7.5;
   }
 
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
-  $("prevBtn").onclick = () => goToDate(addDays(weekStart, -7));
-  $("nextBtn").onclick = () => goToDate(addDays(weekStart, 7));
+  $("prevBtn").onclick = () => step(-1);
+  $("nextBtn").onclick = () => step(1);
   $("miniPrev").onclick = () => { miniMonth = new Date(miniMonth.getFullYear(), miniMonth.getMonth() - 1, 1); renderMini(); };
   $("miniNext").onclick = () => { miniMonth = new Date(miniMonth.getFullYear(), miniMonth.getMonth() + 1, 1); renderMini(); };
   el.miniGrid.addEventListener("click", (e) => {
     const b = e.target.closest("button[data-date]");
     if (!b) return;
     const keepMonth = miniMonth;
-    weekStart = startOfWeek(parseISO(b.dataset.date));
-    miniMonth = keepMonth;
+    goToDate(parseISO(b.dataset.date), false);
+    if (view === "week") miniMonth = keepMonth;
     render();
   });
   $("menuBtn").onclick = () => {
     const mobile = window.matchMedia("(max-width: 800px)").matches;
     el.sidebar.classList.toggle(mobile ? "open" : "collapsed");
-    setTimeout(renderGrid, 220);
+    setTimeout(refreshMain, 220);
   };
+
+  el.viewBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    el.viewMenu.hidden = !el.viewMenu.hidden;
+    el.viewBtn.setAttribute("aria-expanded", String(!el.viewMenu.hidden));
+  });
+  el.viewMenu.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-view]");
+    if (!b) return;
+    el.viewMenu.hidden = true;
+    el.viewBtn.setAttribute("aria-expanded", "false");
+    setView(b.dataset.view);
+  });
 
   el.aiForm.addEventListener("submit", (e) => { e.preventDefault(); submitCommand(el.aiInput.value); });
   el.aiInput.addEventListener("keydown", (e) => {
@@ -622,14 +875,46 @@
     const h = e.target.closest(".hint");
     if (h) { el.aiInput.value = h.textContent; el.aiInput.focus(); autosize(); }
   });
-  el.aiStatus.addEventListener("click", (e) => { if (e.target.closest(".undo")) undo(); });
-
-  document.addEventListener("click", (e) => { if (!el.popover.contains(e.target)) hidePopover(); });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { if (draft) draft.busy = false; hidePopover(); }
+  el.aiStatus.addEventListener("click", (e) => {
+    if (e.target.closest(".undo")) undo();
+    else if (e.target.closest(".redo")) redo();
   });
-  window.addEventListener("resize", () => { if (!drag) renderGrid(); });
-  setInterval(() => { if (!drag) renderGrid(); }, 60000); // keep the red "now" line moving
+
+  document.addEventListener("click", (e) => {
+    if (!el.popover.contains(e.target)) hidePopover();
+    if (!el.viewMenu.hidden && !el.viewMenu.contains(e.target)) {
+      el.viewMenu.hidden = true;
+      el.viewBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  const isTyping = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (draft) draft.busy = false;
+      hidePopover();
+      el.viewMenu.hidden = true;
+      return;
+    }
+    // Inside a text box, keep the browser's own text undo/redo and typing.
+    if (isTyping(e.target) || drag) return;
+    const mod = e.ctrlKey || e.metaKey;
+    const key = e.key.toLowerCase();
+    if (mod && !e.altKey) {
+      if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+      return;
+    }
+    if (e.altKey || e.shiftKey) return;
+    // Google Calendar's single-key shortcuts.
+    if (key === "w") setView("week");
+    else if (key === "m") setView("month");
+    else if (key === "t") goToDate(new Date());
+    else if (key === "j" || key === "n") step(1);
+    else if (key === "k" || key === "p") step(-1);
+  });
+  window.addEventListener("resize", () => { if (!drag) refreshMain(); });
+  setInterval(() => { if (!drag && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar

@@ -12,7 +12,20 @@ You can also work with the grid directly:
 - **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
 - **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
   describe it, and Claude fills in the title/details using the slot you picked.
-- Every change (AI or drag) can be undone from the sidebar.
+- **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
+  day to create one (include a time in the description), click "N more" to see a full day, click a date
+  number to open that week.
+- Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
+
+Keyboard shortcuts (ignored while typing in a text box):
+
+| Keys | Action |
+|---|---|
+| `Ctrl/⌘ + Z` | Undo |
+| `Ctrl + Y`, `Ctrl/⌘ + Shift + Z` | Redo |
+| `W` / `M` | Week / Month view |
+| `T` | Today |
+| `J` or `N` / `K` or `P` | Next / previous period |
 
 - **Frontend:** static `index.html`, `styles.css`, `app.js` (no build step). Events are stored in the browser's `localStorage`.
 - **Backend:** `api/schedule.js`, a Vercel serverless function that calls the Anthropic API with
