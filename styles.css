@@ -368,10 +368,20 @@ body.task-dragging .allday-zone.zone-hot::after {
   outline: 0; padding: 0 0 2px; background: transparent;
 }
 .popover .prow { display: flex; gap: 16px; align-items: flex-start; }
+.popover .picon { width: 20px; flex-shrink: 0; display: flex; justify-content: center; color: #5f6368; }
 .popover .swatch { width: 14px; height: 14px; border-radius: 4px; margin-top: 6px; flex-shrink: 0; }
+.popover .pinfo { flex: 1; }
+.popover .ploc-row { margin-top: 10px; }
+.popover .ploc-row .picon svg { margin-top: -1px; }
 .popover .ptitle { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; }
 .popover .pwhen { font-size: 14px; color: var(--text); margin-top: 4px; }
-.popover .ploc { font-size: 14px; color: var(--text-2); margin-top: 8px; }
+.popover .ploc { font-size: 14px; color: var(--text); line-height: 20px; cursor: text; }
+.popover .ploc.empty { color: var(--text-2); cursor: pointer; }
+.popover .ploc.empty:hover { color: var(--text); }
+.popover .pfield-input {
+  width: 100%; font: inherit; color: inherit; border: 0; border-bottom: 2px solid var(--blue);
+  outline: 0; padding: 0 0 1px; background: transparent;
+}
 .popover .phint { font-size: 12px; color: var(--text-2); margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 
 .toast {

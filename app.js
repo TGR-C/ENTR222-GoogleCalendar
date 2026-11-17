@@ -386,20 +386,27 @@
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
     p.innerHTML = `${CLOSE_BTN}
-      <div class="prow"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div>
-        <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>`;
+      <div class="prow"><div class="picon"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div></div>
+        <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div></div></div>
+      <div class="prow ploc-row"><div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg></div>
+        <div class="pinfo"><div class="ploc"></div></div></div>`;
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     const days = Math.round((startOfDay(e) - startOfDay(s)) / 86400000);
     p.querySelector(".pwhen").textContent = !ev.allDay ? `${dayStr} · ${fmtRange(s, e)}`
       : days > 1 ? `${dayStr} – ${addDays(e, -1).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`
       : `${dayStr} · All day`;
-    p.querySelector(".ploc").textContent = ev.location || "";
-    if (!ev.location) p.querySelector(".ploc").remove();
+    const locEl = p.querySelector(".ploc");
+    locEl.textContent = ev.location || "Add location";
+    locEl.classList.toggle("empty", !ev.location);
+    locEl.title = ev.location ? "Double-click to edit" : "Click to add a location";
+    locEl.addEventListener("dblclick", () => editPopoverField(ev, "location", locEl));
+    // An empty location is just a placeholder, so a single click is enough there.
+    locEl.addEventListener("click", () => { if (!ev.location) editPopoverField(ev, "location", locEl); });
     p.querySelector("[data-close]").onclick = hidePopover;
     p.dataset.eventId = ev.id;
     const titleEl = p.querySelector(".ptitle");
     titleEl.title = "Double-click to edit";
-    titleEl.addEventListener("dblclick", () => editPopoverTitle(ev, titleEl));
+    titleEl.addEventListener("dblclick", () => editPopoverField(ev, "title", titleEl));
     // Trash icon next to the close button, like Google.
     const del = document.createElement("button");
     del.type = "button";
@@ -417,7 +424,11 @@
       b.className = "pdone";
       b.textContent = ev.done ? "Mark as not completed" : "Mark completed";
       b.onclick = (e) => { e.stopPropagation(); toggleTaskEvent(ev.id); };
-      p.querySelector(".pinfo").appendChild(b);
+      const row = document.createElement("div");
+      row.className = "prow";
+      row.innerHTML = `<div class="picon"></div><div class="pinfo"></div>`;
+      row.querySelector(".pinfo").appendChild(b);
+      p.querySelector(".ploc-row").after(row);
     }
 
     const bar = aiBar({
@@ -1022,38 +1033,45 @@
     setStatus(`${done ? "Completed" : "Reopened"} “${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
   }
 
-  // Double-click the popover title to rename the event (and its task, if it came from one).
-  function editPopoverTitle(ev, titleEl) {
-    if (titleEl.querySelector("input")) return;
+  // Inline editing of a popover field ("title" or "location").
+  // Renaming a task placed on the calendar renames the task and all of its calendar entries.
+  function editPopoverField(ev, field, node) {
+    if (node.querySelector("input")) return;
+    const isTitle = field === "title";
+    const current = ev[field] || "";
     const input = document.createElement("input");
-    input.className = "ptitle-input";
+    input.className = isTitle ? "ptitle-input" : "pfield-input";
     input.type = "text";
     input.maxLength = 200;
-    input.value = ev.title || "";
-    input.setAttribute("aria-label", "Title");
-    titleEl.textContent = "";
-    titleEl.appendChild(input);
+    input.value = current;
+    input.placeholder = isTitle ? "Title" : "Add location";
+    input.setAttribute("aria-label", isTitle ? "Title" : "Location");
+    node.classList.remove("empty");
+    node.textContent = "";
+    node.appendChild(input);
     input.focus();
     input.select();
 
+    const restore = () => {
+      node.textContent = current || (isTitle ? "(No title)" : "Add location");
+      if (!isTitle) node.classList.toggle("empty", !current);
+    };
     let done = false;
     const finish = (save) => {
       if (done) return;
       done = true;
       const val = input.value.trim();
-      if (!save || !val || val === ev.title) {
-        titleEl.textContent = ev.title || "(No title)";
-        return;
-      }
+      // A title can't be blank; a blank location removes it.
+      if (!save || val === current || (isTitle && !val)) { restore(); return; }
       pushUndo();
-      if (ev.taskId) {
+      if (isTitle && ev.taskId) {
         events.forEach((x) => { if (x.taskId === ev.taskId) x.title = val; });
         const task = tasks.find((t) => t.id === ev.taskId);
         if (task) task.title = val;
         saveTasks();
         renderTasks();
       } else {
-        ev.title = val;
+        ev[field] = val;
       }
       saveEvents();
       const popoverOpen = !el.popover.hidden && el.popover.dataset.eventId === ev.id;
@@ -1061,11 +1079,13 @@
       render();
       flashIds = new Set();
       if (popoverOpen) {
-        // Re-open on the freshly drawn event so the popover shows the new title.
+        // Re-open on the freshly drawn event so the popover shows the new value.
         const anchor = document.querySelector(`[data-id="${ev.id}"]:not(.echeck)`);
-        if (anchor) showPopover(ev, anchor); else titleEl.textContent = val;
+        if (anchor) showPopover(ev, anchor); else node.textContent = val;
       }
-      setStatus(`Renamed to “${escapeHTML(val)}”. <button class="undo" type="button">Undo</button>`);
+      const msg = isTitle ? `Renamed to “${escapeHTML(val)}”.`
+        : val ? `Location set to “${escapeHTML(val)}”.` : "Location removed.";
+      setStatus(`${msg} <button class="undo" type="button">Undo</button>`);
     };
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); finish(true); }
