@@ -139,7 +139,7 @@
 
       <!-- Pull new messages from the Connection Hub into events/tasks (reviewed there before adding) -->
       <div class="hub-sync">
-        <button type="button" class="hub-sync-btn" id="hubSync">
+        <button type="button" class="hub-sync-btn" id="hubSync" aria-label="Update events from Connection Hub" title="Update events from Connection Hub">
           <svg viewBox="0 0 40 40" width="30" height="30" aria-hidden="true">
             <path d="M11 11 20 20M29 11 20 20M11 29 20 20M29 29 20 20" stroke="#fff" stroke-width="2.4"/>
             <circle cx="11" cy="11" r="3.4" fill="#1a73e8" stroke="#fff" stroke-width="2.2"/>
@@ -148,7 +148,7 @@
             <circle cx="29" cy="29" r="3.4" fill="#1a73e8" stroke="#fff" stroke-width="2.2"/>
             <circle cx="20" cy="20" r="5.5" fill="#fff"/>
           </svg>
-          <span class="hub-sync-text"><b>Update events from Connection Hub</b><small id="hubSyncSub"></small></span>
+          <span class="hub-sync-badge" id="hubSyncBadge" hidden></span>
         </button>
       </div>
     </aside>

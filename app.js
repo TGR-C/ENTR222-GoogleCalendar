@@ -4356,8 +4356,13 @@
   const newHubMsgs = () => Object.values(hubMsgs).flat().filter((m) => !hub.seen.has(m.id)).sort((a, b) => b.at - a.at);
   function updateHubSync() {
     const n = newHubMsgs().length;
-    $("hubSyncSub").textContent = n ? `${n} new message${n === 1 ? "" : "s"}` : "Up to date — no new messages";
-    $("hubSync").classList.toggle("has-new", n > 0);
+    const badge = $("hubSyncBadge"), btn = $("hubSync");
+    badge.hidden = !n;
+    badge.textContent = n > 99 ? "99+" : String(n);
+    const label = `Update events from Connection Hub — ${n ? `${n} new message${n === 1 ? "" : "s"}` : "up to date"}`;
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.classList.toggle("has-new", n > 0);
   }
   $("hubSync").addEventListener("click", async () => {
     const fresh = newHubMsgs();

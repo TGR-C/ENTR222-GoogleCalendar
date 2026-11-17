@@ -370,25 +370,22 @@ small.wtm-warn { font-size: 11px; font-weight: 500; white-space: normal; }
 }
 .popover .pdone:hover { background: #e8f0fe; }
 
-/* ---------- "Update events from Connection Hub" (bottom of the calendar sidebar) ---------- */
-.hub-sync { position: sticky; bottom: -16px; margin: 8px -12px -16px -16px; padding: 12px 12px 6px 16px; background: linear-gradient(to bottom, rgba(255,255,255,0), #fff 22%); z-index: 3; }
+/* ---------- "Update events from Connection Hub": round icon button in the sidebar's bottom-left corner ---------- */
+.hub-sync { position: sticky; bottom: -16px; margin: 8px -12px -16px -16px; padding: 10px 12px 10px 14px; pointer-events: none; z-index: 3; }
 .hub-sync-btn {
-  display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border-radius: 16px; text-align: left;
-  background: #1a73e8; color: #fff; box-shadow: 0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
+  pointer-events: auto; position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+  background: #1a73e8; box-shadow: 0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
+  transition: transform .12s, box-shadow .12s;
 }
-.hub-sync-btn:hover { background: #1765cc; }
-.hub-sync-btn svg { flex-shrink: 0; }
-.hub-sync-text { display: flex; flex-direction: column; min-width: 0; }
-.hub-sync-text b { font: 500 14px "Google Sans", Roboto, sans-serif; line-height: 1.25; }
-.hub-sync-text small { font-size: 12px; opacity: .9; margin-top: 2px; }
-.hub-sync-btn.has-new .hub-sync-text small {
-  align-self: flex-start; opacity: 1; margin-top: 5px; padding: 1px 8px; border-radius: 10px;
-  background: #fff; color: #d93025; font-weight: 700;
+.hub-sync-btn:hover { background: #1765cc; transform: translateY(-1px); box-shadow: 0 2px 4px 0 rgba(60,64,67,.3), 0 6px 12px 4px rgba(60,64,67,.15); }
+.hub-sync-btn:focus-visible { outline: 3px solid #8ab4f8; outline-offset: 2px; }
+/* phone-style notification badge, top right of the icon */
+.hub-sync-badge {
+  position: absolute; top: -4px; right: -6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+  background: #d93025; color: #fff; font: 700 12px/22px Roboto, sans-serif; text-align: center;
+  box-shadow: 0 0 0 2px #fff;
 }
-.hub-sync-btn:not(.has-new) { background: #e8f0fe; color: #1967d2; box-shadow: none; }
-.hub-sync-btn:not(.has-new) svg path, .hub-sync-btn:not(.has-new) svg circle { stroke: #1967d2; }
-.hub-sync-btn:not(.has-new) svg circle { fill: #e8f0fe; }
-.hub-sync-btn:not(.has-new) svg circle[r="5.5"] { fill: #1967d2; }
+.hub-sync-badge[hidden] { display: none; }
 
 /* ---------- Tasks ---------- */
 .tasks { margin-bottom: 16px; }
