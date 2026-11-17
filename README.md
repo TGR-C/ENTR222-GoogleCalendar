@@ -41,6 +41,8 @@ You can also work with the grid directly:
   In an event's popup, click the colour square (or the calendar name) to move it to another calendar.
   The AI box can do all of this too ("make a Health tag in green and put the gym in it", "hide Classes").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
+- **Dark mode**: the moon/sun button at the top right (left of the **(?)**) switches between light and dark,
+  in every mode. Until you pick, it follows your system setting; your pick is remembered.
 
 ## Modes
 
