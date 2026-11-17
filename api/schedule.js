@@ -50,6 +50,7 @@ Rules:
 - One request can produce several actions (e.g. "move all my Monday meetings to Tuesday").
 - Use location "" when none is known.
 - If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration.
+- If "selected_event_id" is present, the user opened that event and is describing a change to it: "it", "this", or a bare instruction ("move to 3pm", "make it longer", "delete") refers to that event. Only touch other events if the request clearly names them.
 - If the request is ambiguous (e.g. several events match and you can't tell which) or is not about the calendar, return no actions and ask a short question in reply.
 - reply: one short, friendly sentence saying what you did.`;
 
@@ -61,7 +62,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { command, events = [], now, weekStart, weekEnd, slot } = req.body || {};
+  const { command, events = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
   if (typeof command !== "string" || !command.trim()) {
     return res.status(400).json({ error: "Missing command" });
   }
@@ -74,6 +75,9 @@ export default async function handler(req, res) {
     visible_week: { start: weekStart, end: weekEnd },
     ...(slot && TIME_RE.test(slot.start) && TIME_RE.test(slot.end)
       ? { selected_slot: { start: slot.start, end: slot.end } }
+      : {}),
+    ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
+      ? { selected_event_id: eventId }
       : {}),
     events: events.map(({ id, title, start, end, color, location }) => ({
       id, title, start, end, color, location: location || "",

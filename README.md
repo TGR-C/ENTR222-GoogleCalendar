@@ -12,6 +12,8 @@ You can also work with the grid directly:
 - **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
 - **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
   describe it, and Claude fills in the title/details using the slot you picked.
+- **Click an event** to see its details and describe a change right there ("move to 3pm",
+  "make it 2 hours", "rename to Design review", "delete it"); Claude knows which event you mean.
 - **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
   day to create one (include a time in the description), click "N more" to see a full day, click a date
   number to open that week.

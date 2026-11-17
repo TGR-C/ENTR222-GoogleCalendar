@@ -278,24 +278,99 @@
   }
 
   // ---------- popover ----------
+  const FINE_POINTER = !window.matchMedia("(pointer: coarse)").matches; // not a touch screen
+  const CLOSE_BTN = `<div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button></div>`;
+
+  // The pill-shaped "describe it" input used in popovers. onSubmit(text) returns the API
+  // reply; if Claude changed nothing (e.g. it asked a question) the reply is shown inline.
+  function aiBar({ placeholder, hint, busyText, onSubmit }) {
+    const wrap = document.createElement("div");
+    wrap.className = "pbar";
+    wrap.innerHTML = `
+      <form class="ai-input-wrap pnew-form" autocomplete="off">
+        <svg class="ai-spark" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
+        <textarea rows="1"></textarea>
+        <button type="submit" class="ai-send" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </form>
+      <div class="ai-status pnew-status"></div>`;
+    const form = wrap.querySelector("form"), input = wrap.querySelector("textarea");
+    const status = wrap.querySelector(".pnew-status"), send = wrap.querySelector(".ai-send");
+    input.placeholder = placeholder;
+    input.setAttribute("aria-label", placeholder);
+    status.textContent = hint;
+    let busy = false;
+    input.addEventListener("input", () => {
+      input.style.height = "auto";
+      input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+    });
+    const submit = async () => {
+      const text = input.value.trim();
+      if (!text || busy) return;
+      busy = true;
+      send.disabled = true; input.readOnly = true;
+      status.classList.remove("error");
+      status.innerHTML = `<span class="spinner"></span>${escapeHTML(busyText)}`;
+      try {
+        const reply = await onSubmit(text);
+        if (reply) { status.textContent = reply; input.value = ""; }
+      } catch (err) {
+        status.classList.add("error");
+        status.textContent = err.message || "Something went wrong.";
+      } finally {
+        busy = false;
+        send.disabled = false; input.readOnly = false;
+        if (!el.popover.hidden) input.focus();
+      }
+    };
+    form.addEventListener("submit", (e) => { e.preventDefault(); submit(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+    });
+    return { wrap, input };
+  }
+
+  // Send a request from a popover; close it and apply the result if anything changed.
+  async function popoverRequest(text, ctx) {
+    const data = await callSchedule(text, ctx);
+    const actions = data.actions || [];
+    if (!actions.length) return data.reply || "I couldn’t work out a change — try rephrasing.";
+    el.popover.hidden = true;
+    if (draft) { draft.busy = false; draft = null; }
+    const changed = applyActions(actions);
+    setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
+    return null;
+  }
+
+  // Clicking an event: details plus an input bar to describe a change to it.
   function showPopover(ev, anchor) {
     clearDraft();
     const s = parseISO(ev.start), e = parseISO(ev.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
-    p.innerHTML = `
-      <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-      </button></div>
+    p.innerHTML = `${CLOSE_BTN}
       <div class="prow"><div class="swatch" style="background:${COLORS[ev.color] || COLORS.peacock}"></div>
-        <div><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>
-      <div class="phint">${view === "week" ? "Drag to move, drag the bottom edge to resize," : "Drag to another day to move it,"} or describe a change in the box on the left — e.g. “move ${escapeQuotes(ev.title)} to 3pm”.</div>`;
+        <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div><div class="ploc"></div></div></div>`;
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     p.querySelector(".pwhen").textContent = `${dayStr} · ${fmtRange(s, e)}`;
     p.querySelector(".ploc").textContent = ev.location || "";
+    if (!ev.location) p.querySelector(".ploc").remove();
     p.querySelector("[data-close]").onclick = hidePopover;
+
+    const bar = aiBar({
+      placeholder: "Describe a change",
+      hint: "e.g. “move to 3pm”, “make it 2 hours”, “rename to Design review”, “delete it”",
+      busyText: "Updating…",
+      onSubmit: (text) => popoverRequest(text, { eventId: ev.id }),
+    });
+    bar.wrap.classList.add("pedit");
+    p.appendChild(bar.wrap);
     p.hidden = false;
     placePopover(anchor);
+    if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
   }
   function hidePopover() {
     el.popover.hidden = true;
@@ -307,8 +382,7 @@
     draft = null;
     document.querySelectorAll(".draft").forEach((n) => n.remove());
   }
-  const escapeQuotes = (s) => String(s).replace(/[<>&"]/g, "");
-
+  
   function placePopover(anchor) {
     const p = el.popover;
     const r = anchor.getBoundingClientRect();
@@ -326,63 +400,32 @@
     const s = parseISO(draft.start), e = parseISO(draft.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
-    p.innerHTML = `
-      <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-      </button></div>
-      <div class="pnew-when"></div>
-      <form class="ai-input-wrap pnew-form" autocomplete="off">
-        <svg class="ai-spark" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
-        <textarea rows="1" placeholder="Describe the event" aria-label="Describe the event"></textarea>
-        <button type="submit" class="ai-send" aria-label="Create">
-          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </form>
-      <div class="ai-status pnew-status"></div>`;
+    p.innerHTML = `${CLOSE_BTN}<div class="pnew-when"></div>`;
     // Month view picks a day, not a time: the time comes from the description (default 9–10am).
     p.querySelector(".pnew-when").textContent = draft.dayOnly ? dayStr : `${dayStr} · ${fmtRange(s, e)}`;
-    p.querySelector(".pnew-status").textContent = draft.dayOnly
-      ? "Include a time, e.g. “Dinner with Sam at 7pm” (defaults to 9am)"
-      : "e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”";
-    p.querySelector("[data-close]").onclick = () => { draft.busy = false; hidePopover(); };
-    const form = p.querySelector("form"), input = p.querySelector("textarea");
-    const status = p.querySelector(".pnew-status"), send = p.querySelector(".ai-send");
-    const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 120)}px`; };
-    input.addEventListener("input", grow);
-
-    const submit = async () => {
-      const text = input.value.trim();
-      if (!text || draft.busy) return;
-      draft.busy = true;
-      send.disabled = true; input.readOnly = true;
-      status.classList.remove("error");
-      status.innerHTML = `<span class="spinner"></span>Creating…`;
-      try {
-        const data = await callSchedule(text, { start: draft.start, end: draft.end });
-        draft = null;
-        el.popover.hidden = true;
-        const changed = applyActions(data.actions || []);
-        setStatus(escapeHTML(data.reply || "Done.") + (changed.length ? ` <button class="undo" type="button">Undo</button>` : ""));
-      } catch (err) {
-        if (draft) draft.busy = false;
-        send.disabled = false; input.readOnly = false;
-        status.classList.add("error");
-        status.textContent = err.message || "Something went wrong.";
-      }
-    };
-    form.addEventListener("submit", (ev) => { ev.preventDefault(); submit(); });
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); submit(); }
+    p.querySelector("[data-close]").onclick = () => { if (draft) draft.busy = false; hidePopover(); };
+    const slot = { start: draft.start, end: draft.end };
+    const bar = aiBar({
+      placeholder: "Describe the event",
+      hint: draft.dayOnly
+        ? "Include a time, e.g. “Dinner with Sam at 7pm” (defaults to 9am)"
+        : "e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”",
+      busyText: "Creating…",
+      onSubmit: async (text) => {
+        if (draft) draft.busy = true; // keep the placeholder while the request runs
+        try { return await popoverRequest(text, { slot }); }
+        finally { if (draft) draft.busy = false; }
+      },
     });
-
+    p.appendChild(bar.wrap);
     p.hidden = false;
     const anchor = document.querySelector(".draft");
     if (anchor) placePopover(anchor);
-    input.focus();
+    if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
   }
 
   // ---------- AI command ----------
-  async function callSchedule(command, slot = null) {
+  async function callSchedule(command, { slot = null, eventId = null } = {}) {
     const res = await fetch("/api/schedule", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -390,6 +433,7 @@
         command,
         events,
         slot,
+        eventId,
         now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
         weekStart: dayKey(weekStart),
         weekEnd: dayKey(addDays(weekStart, 6)),
