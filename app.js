@@ -4435,10 +4435,10 @@
       ] },
       { name: "Whentomeet", steps: [
         { title: "Find a time with people", target: "#wtmNew", body: "The people icon next to the mini calendar starts a Whentomeet: pick dates (or days of the week), the hours, a name, then invite people." },
-        { title: "Open one", target: "#wtmList", body: "Your Whentomeets are listed here. Click one to open it — the sidebar becomes its panel and the calendar turns into big blocks." },
-        { title: "Mark your availability", target: null, body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
-        { title: "See the group", target: null, body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person to see just their times." },
-        { title: "Overlap warnings", target: null, body: "If an event later lands on time you marked available, a red warning appears under the Whentomeet with a one-click fix." },
+        { title: "Open one", target: ".wtm-top", enter: () => tourMeet("mine"), body: "Click a Whentomeet in the sidebar list to open it — here's the example, opened for you. The sidebar becomes its panel and the calendar turns into big blocks; click this line or ✕ to go back." },
+        { title: "Mark your availability", target: "#meetGrid", enter: () => tourMeet("mine"), body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
+        { title: "See the group", target: "#meetGrid", enter: () => tourMeet("group"), body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person in the list to see just their times." },
+        { title: "Overlap warnings", target: ".wtm-top", enter: () => tourMeet("mine"), body: "If an event later lands on time you marked available, a red warning appears right under this line, with a one-click fix." },
       ] },
     ],
     timeline: [
@@ -4476,8 +4476,25 @@
     const n = [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(x).visibility !== "hidden"; });
     return n || null;
   }
+  // Steps about Whentomeet open the example themselves (the tour overlay blocks clicking it);
+  // anything the tour opened is closed again when it moves on or ends.
+  function tourMeet(view) {
+    const m = meets[0];
+    if (!m) return;
+    if (wtm.active !== m.id) {
+      if (wtm.active) return; // the user already has one open: leave it alone
+      enterMeet(m.id);
+      tour.openedMeet = true;
+    }
+    if (wtm.view !== view) setMeetView(view);
+  }
+  function tourLeaveMeet() {
+    if (tour.openedMeet && wtm.active) exitMeet();
+    tour.openedMeet = false;
+  }
   function showTourStep() {
     const sec = tour.set[tour.sec], st = sec.steps[tour.step];
+    (st.enter || tourLeaveMeet)();
     tour.sections.innerHTML = "";
     tour.set.forEach((s, i) => {
       const b = document.createElement("button");
@@ -4516,7 +4533,7 @@
     showTourStep();
     tour.card.focus();
   }
-  const closeTour = () => { tour.root.hidden = true; };
+  const closeTour = () => { tour.root.hidden = true; tourLeaveMeet(); };
   function tourMove(dir) {
     const sec = tour.set[tour.sec];
     if (dir > 0) {
