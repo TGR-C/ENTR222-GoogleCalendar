@@ -65,7 +65,8 @@ Click the **Connection Hub** tab (top left). It uses made-up demo messages — n
 
 - **Sources** (left): All sources, Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe.
   With **All sources** (the default) the feed shows every message newest first, each tagged with its source;
-  click a source to see only its messages (click it again to go back to all). Messages are listed one block
+  click a source to see only its messages (click it again to go back to all), or drag across sources,
+  Shift-click a range, or Ctrl/⌘-click to show several sources together. Messages are listed one block
   per message, top to bottom, 12 per page (‹ › to page, **«** back to page 1). Click messages to select them,
   or **Select all** to take every message in the current view. **Add a source** connects more apps (demo
   only — they arrive empty); ☰ hides the sources list.

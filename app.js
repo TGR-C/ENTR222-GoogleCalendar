@@ -1860,7 +1860,13 @@
     hubEl.root.hidden = m !== "hub";
     if (m === "timeline") { if (wtm.active) exitMeet(); tl.auto = true; buildTimeline(); renderWork(); }
     else if (m === "hub") { if (wtm.active) exitMeet(); setExpanded(false); renderHub(); }
-    else { setExpanded(false); render(); updateHubSync(); }
+    else {
+      setExpanded(false);
+      render();
+      updateHubSync();
+      // If the week view was hidden when the page loaded, it never got its usual starting scroll position.
+      if (view === "week" && el.weekBody.scrollTop === 0) el.weekBody.scrollTop = hourPx() * 7.5;
+    }
   }
   // One click switches mode; ← / → move between the tabs from the keyboard.
   modeEl.tabs.forEach((t, i) => {
@@ -3779,15 +3785,23 @@
   hubExtra = (Array.isArray(hubSaved.extra) ? hubSaved.extra : []).map((id) => HUB_CATALOG.find((c) => c.id === id)).filter(Boolean);
   for (const src of hubExtra) hubMsgs[src.id] = [];
   const hub = {
-    view: srcById(hubSaved.view || "") ? hubSaved.view : null, // null = all sources
+    // Sources shown in the feed ([] = all sources). Older saves kept a single "view".
+    views: (Array.isArray(hubSaved.views) ? hubSaved.views : hubSaved.view ? [hubSaved.view] : []).filter((id) => srcById(id)),
+    anchor: null, // last clicked source, for Shift-click ranges
     items: Array.isArray(hubSaved.items) ? hubSaved.items : [],
     build: ["auto", "events", "tasks"].includes(hubSaved.build) ? hubSaved.build : "auto",
     pages: {}, selected: new Set(), busy: false, editing: null, undoable: false,
     seen: new Set(Array.isArray(hubSaved.seen) ? hubSaved.seen : []), // messages already checked by "Update events"
   };
-  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ view: hub.view, items: hub.items, build: hub.build, extra: hubExtra.map((x) => x.id), seen: [...hub.seen] })); } catch { /* ignore */ } };
+  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ views: hub.views, items: hub.items, build: hub.build, extra: hubExtra.map((x) => x.id), seen: [...hub.seen] })); } catch { /* ignore */ } };
   const ALL_MSGS = Object.values(hubMsgs).flat().sort((a, b) => b.at - a.at);
-  const viewMsgs = () => (hub.view ? hubMsgs[hub.view] : ALL_MSGS);
+  const viewMsgs = () => (hub.views.length
+    ? hub.views.flatMap((id) => hubMsgs[id] || []).sort((a, b) => b.at - a.at)
+    : ALL_MSGS);
+  const viewName = () => {
+    const names = hub.views.map((id) => srcById(id).name);
+    return !names.length ? "All sources" : names.length <= 3 ? names.join(", ") : `${names.length} sources`;
+  };
   const hubEl = {
     root: $("hub"), sources: $("hubSources"), note: $("hubSideNote"), cols: $("hubCols"),
     build: $("hcBuild"), fromSel: $("hcFromSel"), fromSelLabel: $("hcFromSelLabel"),
@@ -3812,13 +3826,16 @@
   // Sidebar: source tabs. "All sources" (or no tab picked) shows everything in time order.
   function renderHubSources() {
     hubEl.sources.innerHTML = "";
-    hubEl.note.textContent = hub.view ? `Showing ${srcById(hub.view).name} only` : "Showing all sources, newest first";
+    hubEl.note.textContent = !hub.views.length ? "Showing all sources, newest first"
+      : hub.views.length === 1 ? `Showing ${srcById(hub.views[0]).name} only` : `Showing ${hub.views.length} sources together`;
     const tab = (id, name, glyph, color, count) => {
       const li = document.createElement("li");
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "hub-src" + (hub.view === id ? " on" : "");
-      b.setAttribute("aria-current", String(hub.view === id));
+      const on = id ? hub.views.includes(id) : !hub.views.length;
+      b.className = "hub-src" + (on ? " on" : "");
+      b.dataset.id = id || "";
+      b.setAttribute("aria-pressed", String(on));
       b.innerHTML = `<span class="hub-glyph"></span><span class="hub-src-name"></span><span class="hub-src-count"></span>`;
       b.querySelector(".hub-glyph").textContent = glyph;
       b.querySelector(".hub-glyph").style.background = color;
@@ -3826,8 +3843,6 @@
       const sel = (id ? hubMsgs[id] : ALL_MSGS).filter((m) => hub.selected.has(m.id)).length;
       b.querySelector(".hub-src-count").textContent = sel ? `${sel}/${count}` : count;
       if (sel) b.querySelector(".hub-src-count").classList.add("sel");
-      // Clicking the tab that's already open goes back to all sources.
-      b.addEventListener("click", () => { hub.view = id && hub.view !== id ? id : null; saveHub(); renderHub(); });
       li.appendChild(b);
       hubEl.sources.appendChild(li);
     };
@@ -3843,11 +3858,12 @@
       x.setAttribute("aria-label", `Remove ${src.name}`);
       x.title = "Remove this source";
       x.textContent = "×";
+      x.addEventListener("pointerdown", (e) => e.stopPropagation()); // not the start of a drag-select
       x.addEventListener("click", (e) => {
         e.stopPropagation();
         hubExtra = hubExtra.filter((y) => y !== src);
         delete hubMsgs[src.id];
-        if (hub.view === src.id) hub.view = null;
+        hub.views = hub.views.filter((v) => v !== src.id);
         saveHub();
         renderHub();
       });
@@ -3855,12 +3871,69 @@
     });
   }
 
-  // The feed: the chosen source (or everything), newest first, as a grid of cards.
+  // Picking sources: click = just that one (again = all sources), drag across = every source dragged over,
+  // Shift+click = range from the last clicked one, Ctrl/Cmd+click = add or remove one. "All sources" clears.
+  let srcDrag = null;
+  const srcIndex = (id) => allSources().findIndex((x) => x.id === id);
+  const srcRange = (a, b) => allSources().slice(Math.min(a, b), Math.max(a, b) + 1).map((x) => x.id);
+  const srcTabAt = (x, y) => {
+    const n = document.elementFromPoint(x, y);
+    const b = n && n.closest && n.closest(".hub-src");
+    return b && hubEl.sources.contains(b) ? b : null;
+  };
+  function commitSources() {
+    saveHub(); // (selected messages are kept across source changes)
+    renderHub();
+  }
+  hubEl.sources.addEventListener("pointerdown", (e) => {
+    const b = e.target.closest(".hub-src");
+    if (!b || e.button !== 0) return;
+    const id = b.dataset.id;
+    e.preventDefault();
+    if (!id) { hub.views = []; hub.anchor = null; commitSources(); return; } // All sources
+    const idx = srcIndex(id);
+    if (e.shiftKey && hub.anchor != null) {
+      hub.views = srcRange(srcIndex(hub.anchor), idx);
+      commitSources();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      hub.views = hub.views.includes(id) ? hub.views.filter((v) => v !== id) : [...hub.views, id];
+      hub.anchor = id;
+      commitSources();
+      return;
+    }
+    srcDrag = { start: idx, id, moved: false, before: hub.views };
+    hubEl.sources.setPointerCapture(e.pointerId);
+  });
+  hubEl.sources.addEventListener("pointermove", (e) => {
+    if (!srcDrag) return;
+    const b = srcTabAt(e.clientX, e.clientY);
+    if (!b || !b.dataset.id) return;
+    const idx = srcIndex(b.dataset.id);
+    if (idx === srcDrag.start && !srcDrag.moved) return;
+    srcDrag.moved = true;
+    hub.views = srcRange(srcDrag.start, idx);
+    renderHubSources(); // live highlight while dragging; the feed updates on release
+  });
+  const endSrcDrag = (e) => {
+    if (!srcDrag) return;
+    const d = srcDrag;
+    srcDrag = null;
+    try { hubEl.sources.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (!d.moved) hub.views = d.before.length === 1 && d.before[0] === d.id ? [] : [d.id]; // plain click
+    hub.anchor = d.id;
+    commitSources();
+  };
+  hubEl.sources.addEventListener("pointerup", endSrcDrag);
+  hubEl.sources.addEventListener("pointercancel", endSrcDrag);
+
+  // The feed: the chosen source(s) (or everything), newest first.
   function renderHubCols() {
     const box = hubEl.cols;
-    const src = hub.view && srcById(hub.view);
+    const src = hub.views.length === 1 ? srcById(hub.views[0]) : null;
     const msgs = viewMsgs();
-    const key = hub.view || "all";
+    const key = hub.views.length ? [...hub.views].sort().join("+") : "all";
     const pages = Math.max(1, Math.ceil(msgs.length / HUB_PAGE));
     const page = clamp(hub.pages[key] || 0, 0, pages - 1);
     hub.pages[key] = page;
@@ -3882,7 +3955,7 @@
     const g = box.querySelector(".hub-feed-head .hub-glyph");
     g.textContent = src ? src.glyph : "∗";
     g.style.background = src ? src.color : "#5f6368";
-    box.querySelector(".hub-col-name").textContent = src ? src.name : "All sources";
+    box.querySelector(".hub-col-name").textContent = viewName();
     box.querySelector(".hub-col-count").textContent = sel ? `${sel} of ${msgs.length} selected` : `${msgs.length} messages`;
     const allBtn = box.querySelector(".hub-col-all");
     allBtn.textContent = allOn ? "Unselect all" : "Select all";
@@ -3895,7 +3968,7 @@
       renderConstructTools();
     });
     const grid = box.querySelector(".hub-grid");
-    for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) grid.appendChild(hubMsgEl(m, !hub.view));
+    for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) grid.appendChild(hubMsgEl(m, hub.views.length !== 1));
     if (!msgs.length) grid.innerHTML = `<div class="hub-feed-empty">No messages from ${escapeHTML(src ? src.name : "your sources")} yet.<br><small>This is a demo connection.</small></div>`;
     box.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
     const go = (p) => { hub.pages[key] = p; renderHubCols(); grid.scrollTop = 0; };
@@ -4199,13 +4272,13 @@
   const newHubMsgs = () => Object.values(hubMsgs).flat().filter((m) => !hub.seen.has(m.id)).sort((a, b) => b.at - a.at);
   function updateHubSync() {
     const n = newHubMsgs().length;
-    $("hubSyncSub").textContent = n ? `${n} new message${n === 1 ? "" : "s"} to check` : "Up to date — no new messages";
+    $("hubSyncSub").textContent = n ? `${n} new message${n === 1 ? "" : "s"}` : "Up to date — no new messages";
     $("hubSync").classList.toggle("has-new", n > 0);
   }
   $("hubSync").addEventListener("click", async () => {
     const fresh = newHubMsgs();
     setMode("hub");
-    hub.view = null;
+    hub.views = [];
     saveHub();
     renderHub();
     if (!fresh.length) { hubStatus("No new messages since your last update."); return; }
