@@ -1144,6 +1144,7 @@ input.hc-in[name="title"] { width: 100%; font-size: 14px; }
 .hm-top .wtm-av { width: 26px; height: 26px; font-size: 10px; }
 .hm-from { font-weight: 500; font-size: 13px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-time { font-size: 11px; color: var(--text-2); white-space: nowrap; }
+.hm-new { font: 700 10px Roboto, sans-serif; letter-spacing: .4px; text-transform: uppercase; color: #d93025; background: #fce8e6; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
 .hm-check { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #bdc1c6; display: grid; place-items: center; color: transparent; flex-shrink: 0; }
 .hm-check svg { fill: currentColor; }
 .hub-msg.sel .hm-check { background: var(--blue); border-color: var(--blue); color: #fff; }

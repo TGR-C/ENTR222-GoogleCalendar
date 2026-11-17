@@ -3991,6 +3991,12 @@
     b.querySelector(".wtm-av").style.background = avatarColor(m.from);
     b.querySelector(".hm-from").textContent = m.from;
     b.querySelector(".hm-time").textContent = msgTime(m.at);
+    if (!hub.seen.has(m.id)) {
+      const tag = document.createElement("span");
+      tag.className = "hm-new";
+      tag.textContent = "New";
+      b.querySelector(".hm-from").after(tag);
+    }
     b.querySelector(".hm-where").textContent = m.where;
     if (showSource) {
       // In the all-sources feed, tag each card with where it came from.
@@ -4364,27 +4370,33 @@
     btn.setAttribute("aria-label", label);
     btn.classList.toggle("has-new", n > 0);
   }
-  $("hubSync").addEventListener("click", async () => {
+  // Opens the hub on all sources with every new message selected; the user decides what to construct.
+  $("hubSync").addEventListener("click", () => {
     const fresh = newHubMsgs();
     setMode("hub");
     hub.views = [];
+    hub.pages.all = 0;
+    for (const m of fresh) hub.selected.add(m.id);
     saveHub();
     renderHub();
-    if (!fresh.length) { hubStatus("No new messages since your last update."); return; }
-    // The AI's suggestions land in Construct for review; nothing is added without "Add to calendar".
-    const ok = await hubConstruct(fresh, `${fresh.length} new message${fresh.length === 1 ? "" : "s"}`);
-    if (ok) {
-      fresh.forEach((m) => hub.seen.add(m.id));
-      saveHub();
-      updateHubSync();
-    }
+    const g = hubEl.cols.querySelector(".hub-grid");
+    if (g) g.scrollTop = 0;
+    hubStatus(fresh.length
+      ? `Selected ${fresh.length} new message${fresh.length === 1 ? "" : "s"}. Review them, then click <b>✨ From selected messages</b>.`
+      : "No new messages since your last update.");
   });
 
   hubEl.build.querySelectorAll("[data-build]").forEach((b) => b.addEventListener("click", () => { hub.build = b.dataset.build; saveHub(); renderConstructTools(); }));
   hubEl.fromSel.addEventListener("click", () => {
     const msgs = [...hub.selected].map(msgById).filter(Boolean);
     const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
-    hubConstruct(msgs, srcs.length > 2 ? `${srcs.length} sources` : srcs.join(", ")).then(() => { hub.selected.clear(); renderHubSources(); renderHubCols(); renderConstructTools(); });
+    hubConstruct(msgs, srcs.length > 2 ? `${srcs.length} sources` : srcs.join(", ")).then((ok) => {
+      if (ok) { msgs.forEach((m) => hub.seen.add(m.id)); saveHub(); updateHubSync(); } // no longer "new"
+      hub.selected.clear();
+      renderHubSources();
+      renderHubCols();
+      renderConstructTools();
+    });
   });
   hubEl.newEvent.addEventListener("click", () => newHubItem("event"));
   hubEl.newTask.addEventListener("click", () => newHubItem("task"));

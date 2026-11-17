@@ -77,8 +77,9 @@ Click the **Connection Hub** tab (top left). It uses made-up demo messages — n
   date/time, calendar, location), unticked, or removed. **Add … to calendar** places the ticked events on the
   calendar at their dates and times and puts tasks in the task list (undoable).
 - **Update events from Connection Hub** (the round hub icon in the bottom-left corner of the Calendar sidebar,
-  with a red badge counting new messages) runs the AI over every message not yet checked and opens the hub
-  with the results in Construct, ready to review and add.
+  with a red badge counting new messages) opens the hub with every new message selected (they're tagged
+  **New**); review the selection, then **✨ From selected messages**. Messages stop counting as new once
+  they've been constructed from.
 - Endpoint: `api/hub.js` (same model, `claude-haiku-5-5`); relative dates are read against each message's
   sent time, and things already on your calendar are skipped.
 
