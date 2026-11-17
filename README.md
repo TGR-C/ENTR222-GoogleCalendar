@@ -51,6 +51,21 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to
   Calendar to change anything. The mode is remembered between visits.
 
+## Work with AI (Action timeline)
+
+- **✨ Work** (bottom middle) starts an AI chat about the event shown in the centre. If that day has several
+  things (the event plus all-day items) you pick one; with just one it opens the input bar straight away.
+- After the first message the bar becomes a small chat box. Each event/task has its own chat; asking the AI
+  to draft something (agenda, notes, email, checklist…) creates a file **attached to the event**. You can
+  also attach your own text files (📎) for the AI to read.
+- **Expand** turns the chat into the left half of the screen with the timeline vertical on the right.
+  Browsing the timeline doesn't disturb the chat; a **Work** button on another event starts a new session.
+- Several sessions can run at once. The **session switcher** (chat header) jumps between them and moves the
+  timeline to that event; navigating the timeline onto an event with an open session shows its chat.
+- Attachments (files + the chat transcript) appear on the event in both modes and open in a viewer with
+  Download; in Calendar mode files can also be deleted.
+- Endpoint: `api/work.js` (same model, `claude-haiku-5-5`). Chats and files are stored in the browser.
+
 Keyboard shortcuts (ignored while typing in a text box):
 
 | Keys | Action |

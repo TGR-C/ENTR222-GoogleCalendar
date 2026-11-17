@@ -1,0 +1,6 @@
+{
+  "functions": {
+    "api/schedule.js": { "maxDuration": 60 },
+    "api/work.js": { "maxDuration": 60 }
+  }
+}

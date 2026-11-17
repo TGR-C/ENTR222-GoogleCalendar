@@ -458,6 +458,14 @@
       <div class="prow pcal-row"><div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg></div>
         <div class="pinfo"><button type="button" class="pcal" title="Change calendar"></button></div></div>`;
     p.querySelector(".pcal").textContent = (calOf(ev) || {}).name || "";
+    const atts = attachmentChips(ev.id, { max: 6, editable: true });
+    if (!atts.hidden) {
+      const row = document.createElement("div");
+      row.className = "prow patt-row";
+      row.innerHTML = `<div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg></div><div class="pinfo"></div>`;
+      row.querySelector(".pinfo").appendChild(atts);
+      p.querySelector(".pcal-row").after(row);
+    }
     // The colour square and the calendar name both open the calendar picker.
     const pick = (id) => setEventCalendar(ev, id);
     p.querySelector(".swatch-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev.cal, e.currentTarget, pick); });
@@ -1839,8 +1847,8 @@
     hidePopover();
     if (quickAddOpen()) closeQuickAdd();
     tlEl.root.hidden = m !== "timeline";
-    if (m === "timeline") { tl.auto = true; buildTimeline(); }
-    else render();
+    if (m === "timeline") { tl.auto = true; buildTimeline(); renderWork(); }
+    else { setExpanded(false); render(); }
   }
   function closeModeMenu() {
     modeEl.menu.hidden = true;
@@ -1865,7 +1873,11 @@
     empty: $("tlEmpty"), now: $("tlNow"),
   };
   // seq = the events plus, when a day with nothing planned is being viewed, a placeholder for that day.
-  const tl = { items: [], seq: [], focus: 0, focusId: null, emptyDay: null, auto: true, drag: null, spacing: 300 };
+  const tl = { items: [], seq: [], focus: 0, focusId: null, emptyDay: null, auto: true, drag: null, spacing: 300,
+    vertical: false, lastKey: null, options: [] };
+  // Nodes sit along the line: left offset when horizontal, top offset when vertical (expanded work view).
+  const setPos = (elm, v) => { if (tl.vertical) elm.style.top = `${v}px`; else elm.style.left = `${v}px`; };
+  const axis = () => (tl.vertical ? "Y" : "X");
   const MIN = 60000;
   const PIN_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>`;
 
@@ -1930,7 +1942,7 @@
     const now = new Date();
     const node = document.createElement("div");
     node.className = "tl-node" + (central ? " central" : "") + (s <= now && now < e ? " ongoing" : "");
-    node.style.left = `${x}px`;
+    setPos(node, x);
     node.style.setProperty("--c", color);
     node.innerHTML = `
       <div class="tl-card">
@@ -1960,13 +1972,17 @@
     if (ev.location) loc.querySelector("span").textContent = ev.location; else loc.remove();
     node.querySelector(".tl-tagdot").style.background = color;
     node.querySelector(".tl-tagname").textContent = cal.name || "";
+    const card = node.querySelector(".tl-card");
+    card.appendChild(attachmentChips(ev.id));
+    // Expanded work view: a Work button on the centre card unless it's the event being worked on.
+    if (tl.vertical && central && work.displayed !== ev.id) card.appendChild(cardWorkButton(ev.id));
     return node;
   }
   // Centre card for a day with nothing planned.
   function tlEmptyNode(it, x, central, hasAllDay) {
     const node = document.createElement("div");
     node.className = "tl-node tl-free" + (central ? " central" : "");
-    node.style.left = `${x}px`;
+    setPos(node, x);
     node.style.setProperty("--c", "#9aa0a6");
     node.innerHTML = `
       <div class="tl-card">
@@ -1985,7 +2001,7 @@
   function tlGap(a, b, x) {
     const gap = b.s - a.e;
     const g = document.createElement("div");
-    g.style.left = `${x}px`;
+    setPos(g, x);
     if (gap < 0) {
       g.className = "tl-pill red";
       g.innerHTML = `<b>${fmtDur(-gap)}</b><small>overlap</small>`;
@@ -1997,9 +2013,10 @@
   }
 
   function drawTimeline() {
-    const W = tlEl.stage.clientWidth;
-    tl.spacing = Math.max(240, W * 0.38);
-    const cx = W / 2;
+    tl.vertical = tlEl.root.classList.contains("expanded");
+    const size = tl.vertical ? tlEl.stage.clientHeight : tlEl.stage.clientWidth;
+    tl.spacing = tl.vertical ? Math.max(190, size * 0.34) : Math.max(240, size * 0.38);
+    const cx = size / 2;
     tlEl.track.innerHTML = "";
     tlEl.track.style.transition = "none";
     tlEl.track.style.transform = "";
@@ -2046,7 +2063,8 @@
 
     // Left of the central node: time until it starts (from now).
     const cd = tlEl.countdown;
-    cd.style.left = `${Math.max(70, cx - tl.spacing / 2)}px`;
+    cd.style.left = cd.style.top = "";
+    setPos(cd, tl.vertical ? cx - tl.spacing / 2 : Math.max(70, cx - tl.spacing / 2));
     if (!focusIt || focusIt.virtual) {
       cd.innerHTML = "";
     } else {
@@ -2066,7 +2084,8 @@
 
     // Under the central node: that day's all-day items.
     tlEl.allday.hidden = !allDay.length;
-    tlEl.allday.style.left = `${cx}px`;
+    tlEl.allday.style.left = tlEl.allday.style.top = "";
+    if (!tl.vertical) tlEl.allday.style.left = `${cx}px`;
     tlEl.allday.innerHTML = allDay.length ? `<div class="tl-allday-head">All day</div>` : "";
     for (const ev of allDay) {
       const row = document.createElement("div");
@@ -2076,18 +2095,30 @@
       row.querySelector(".tl-ad-title").textContent = ev.title || "(No title)";
       row.querySelector(".tl-ad-cal").textContent = (calOf(ev) || {}).name || "";
       if (ev.taskId) row.classList.add("is-task");
+      const chips = attachmentChips(ev.id, { max: 2 });
+      if (!chips.hidden) row.appendChild(chips);
+      if (tl.vertical && work.displayed !== ev.id) row.appendChild(cardWorkButton(ev.id, true));
       tlEl.allday.appendChild(row);
     }
+
+    // What the Work button can work on here: the centre event and the day's all-day items.
+    tl.options = [...(focusIt && !focusIt.virtual ? [focusIt.ev.id] : []), ...allDay.map((ev) => ev.id)];
+    const key = focusIt ? seqKey(focusIt) + "@" + dayKey(refDay) : "";
+    if (key !== tl.lastKey) {
+      tl.lastKey = key;
+      onTimelineFocus(tl.options);
+    }
+    updateWorkButton();
   }
 
   // Move the focus by n nodes with a slide, starting from an optional drag offset.
   function slideFrom(offset) {
     if (!offset) return;
     tlEl.track.style.transition = "none";
-    tlEl.track.style.transform = `translateX(${offset}px)`;
+    tlEl.track.style.transform = `translate${axis()}(${offset}px)`;
     void tlEl.track.offsetWidth; // apply the start position before animating
     tlEl.track.style.transition = "transform .32s cubic-bezier(.2,.8,.2,1)";
-    tlEl.track.style.transform = "translateX(0)";
+    tlEl.track.style.transform = `translate${axis()}(0)`;
   }
   // Move the focus to another node, starting from an optional drag offset.
   function tlGo(newFocus, fromOffset = 0) {
@@ -2134,18 +2165,18 @@
   // Drag the line to look further ahead (or back).
   tlEl.stage.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || e.target.closest("button") || !tl.seq.length) return;
-    tl.drag = { x0: e.clientX, dx: 0 };
+    tl.drag = { x0: e.clientX, y0: e.clientY, dx: 0 };
     tlEl.stage.setPointerCapture(e.pointerId);
     tlEl.stage.classList.add("dragging");
     tlEl.track.style.transition = "none";
   });
   tlEl.stage.addEventListener("pointermove", (e) => {
     if (!tl.drag) return;
-    let dx = e.clientX - tl.drag.x0;
+    let dx = tl.vertical ? e.clientY - tl.drag.y0 : e.clientX - tl.drag.x0;
     // Resist past the first / last event.
     if ((tl.focus === 0 && dx > 0) || (tl.focus === tl.seq.length - 1 && dx < 0)) dx *= 0.3;
     tl.drag.dx = dx;
-    tlEl.track.style.transform = `translateX(${dx}px)`;
+    tlEl.track.style.transform = `translate${axis()}(${dx}px)`;
   });
   function tlEndDrag(e) {
     if (!tl.drag) return;
@@ -2160,7 +2191,7 @@
   // Horizontal scrolling (trackpads) steps through events too.
   let tlWheelAt = 0;
   tlEl.stage.addEventListener("wheel", (e) => {
-    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+    const d = tl.vertical ? e.deltaY : Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
     if (Math.abs(d) < 15 || Date.now() - tlWheelAt < 350) return;
     e.preventDefault();
     tlWheelAt = Date.now();
@@ -2169,6 +2200,467 @@
 
   // Keep the countdown live; while following "now", move on as events end.
   setInterval(() => { if (mode === "timeline" && !tl.drag) buildTimeline(); }, 30000);
+
+  // ---------- AI work sessions + attachments ----------
+  // Each event/task gets its own chat ("session"). Files the AI writes (and files the user attaches)
+  // are stored per event, separately from the events themselves so calendar undo never drops them.
+  const ATT_KEY = "nl-calendar-attachments-v1";
+  const SES_KEY = "nl-calendar-sessions-v1";
+  function loadJSON(key, fallback) {
+    try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch { /* ignore */ }
+    return fallback;
+  }
+  let attachments = loadJSON(ATT_KEY, {});   // { [eventId]: [{id, name, content, source, createdAt, updatedAt}] }
+  let sessions = loadJSON(SES_KEY, {});      // { [eventId]: {eventId, title, messages, open, lastActive} }
+  const work = { displayed: null, pending: new Set(), unread: new Set(), drafts: {} };
+  const saveAttachments = () => { try { localStorage.setItem(ATT_KEY, JSON.stringify(attachments)); } catch { /* storage full */ } };
+  const saveSessions = () => { try { localStorage.setItem(SES_KEY, JSON.stringify(sessions)); } catch { /* storage full */ } };
+
+  const wk = {
+    panel: $("wkPanel"), switchBtn: $("wkSwitch"), dot: $("wkDot"), title: $("wkTitle"), count: $("wkCount"),
+    menu: $("wkSwitchMenu"), expand: $("wkExpand"), close: $("wkClose"), files: $("wkFiles"), msgs: $("wkMsgs"),
+    form: $("wkForm"), text: $("wkText"), send: $("wkSend"), attach: $("wkAttach"), file: $("wkFile"), cancel: $("wkCancel"),
+    workBtn: $("tlWork"), workLabel: $("tlWorkLabel"), workMenu: $("tlWorkMenu"),
+    viewer: $("viewer"), vTitle: $("viewerTitle"), vSub: $("viewerSub"), vBody: $("viewerBody"),
+    vDownload: $("viewerDownload"), vDelete: $("viewerDelete"), vClose: $("viewerClose"),
+  };
+  const ICON_EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
+  const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`;
+  const FILE_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>`;
+  const CHAT_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>`;
+
+  const eventById = (id) => events.find((x) => x.id === id);
+  const sessionTitle = (id) => (eventById(id) || {}).title || (sessions[id] || {}).title || "(No title)";
+  const filesFor = (id) => attachments[id] || [];
+  function transcriptFor(id) {
+    const s = sessions[id];
+    if (!s || !s.messages.some((m) => m.role === "user")) return null;
+    const lines = [`# AI chat — ${sessionTitle(id)}`, ""];
+    for (const m of s.messages) {
+      const when = new Date(m.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+      if (m.role === "user") lines.push(`**You** (${when}):`, m.text, "");
+      else if (m.role === "assistant") {
+        lines.push(`**AI** (${when}):`, m.text);
+        if (m.files && m.files.length) lines.push(`_Files: ${m.files.join(", ")}_`);
+        lines.push("");
+      } else if (m.role === "note") lines.push(`_${m.text}_`, "");
+    }
+    return { id: "transcript", name: `AI chat — ${sessionTitle(id)}.md`, content: lines.join("\n"), transcript: true, eventId: id };
+  }
+  // Everything shown as attachments for an event: its files plus the chat transcript.
+  const allAttachments = (id) => [...filesFor(id).map((f) => ({ ...f, eventId: id })), ...(transcriptFor(id) ? [transcriptFor(id)] : [])];
+
+  function upsertFile(eventId, name, content, source) {
+    const list = attachments[eventId] || (attachments[eventId] = []);
+    const existing = list.find((f) => f.name.toLowerCase() === name.toLowerCase());
+    const now = Date.now();
+    if (existing) Object.assign(existing, { content, updatedAt: now, source: existing.source === "user" ? "user" : source });
+    else list.push({ id: uid(), name, content, source, createdAt: now, updatedAt: now });
+  }
+
+  // Small file chips (cards, chat header, popovers). Clicking opens the viewer.
+  function attachmentChips(eventId, { max = 3, editable = false } = {}) {
+    const wrap = document.createElement("div");
+    wrap.className = "att-chips";
+    const all = allAttachments(eventId);
+    all.slice(0, max).forEach((a) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "att-chip" + (a.transcript ? " transcript" : "");
+      b.innerHTML = `${a.transcript ? CHAT_ICON : FILE_ICON}<span></span>`;
+      b.querySelector("span").textContent = a.transcript ? "AI chat" : a.name;
+      b.title = a.name;
+      b.addEventListener("click", (e) => { e.stopPropagation(); openViewer(a, { editable }); });
+      wrap.appendChild(b);
+    });
+    if (all.length > max) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "att-chip more";
+      more.textContent = `+${all.length - max}`;
+      more.title = all.slice(max).map((a) => a.name).join("\n");
+      more.addEventListener("click", (e) => { e.stopPropagation(); openViewer(all[max], { editable }); });
+      wrap.appendChild(more);
+    }
+    if (!all.length) wrap.hidden = true;
+    return wrap;
+  }
+
+  // ----- viewer -----
+  let viewing = null;
+  function openViewer(att, { editable = false } = {}) {
+    viewing = att;
+    wk.vTitle.textContent = att.name;
+    const ev = eventById(att.eventId);
+    wk.vSub.textContent = [ev ? ev.title : sessionTitle(att.eventId),
+      att.transcript ? "chat transcript" : att.source === "user" ? "attached by you" : "created by AI"].join(" · ");
+    wk.vBody.textContent = att.content;
+    wk.vDelete.hidden = !editable || att.transcript; // files can only be deleted in Calendar mode
+    wk.viewer.hidden = false;
+    wk.viewer.querySelector(".viewer-card").focus(); // keyboard users land in the dialog
+  }
+  const closeViewer = () => { wk.viewer.hidden = true; viewing = null; };
+  wk.vClose.addEventListener("click", closeViewer);
+  wk.viewer.addEventListener("click", (e) => { if (e.target === wk.viewer) closeViewer(); });
+  wk.vDownload.addEventListener("click", () => {
+    if (!viewing) return;
+    const type = /\.csv$/i.test(viewing.name) ? "text/csv" : /\.json$/i.test(viewing.name) ? "application/json" : "text/plain";
+    const url = URL.createObjectURL(new Blob([viewing.content], { type: `${type};charset=utf-8` }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = viewing.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  wk.vDelete.addEventListener("click", () => {
+    if (!viewing || viewing.transcript) return;
+    const list = attachments[viewing.eventId] || [];
+    attachments[viewing.eventId] = list.filter((f) => f.id !== viewing.id);
+    saveAttachments();
+    const id = viewing.eventId;
+    closeViewer();
+    // Refresh the event popover if it is showing this event.
+    if (!el.popover.hidden && el.popover.dataset.eventId === id) {
+      const ev = eventById(id);
+      const anchor = document.querySelector(`[data-id="${id}"]:not(.echeck)`);
+      if (ev && anchor) showPopover(ev, anchor);
+    }
+    setStatus(`Deleted the attachment.`);
+  });
+
+  // ----- sessions -----
+  const openSessions = () => Object.values(sessions).filter((s) => s.open).sort((a, b) => b.lastActive - a.lastActive);
+
+  function startSession(eventId) {
+    closeWorkMenu();
+    const ev = eventById(eventId);
+    let s = sessions[eventId];
+    if (!s) s = sessions[eventId] = { eventId, title: ev ? ev.title : "", messages: [], open: true, lastActive: Date.now() };
+    s.open = true;
+    if (ev) s.title = ev.title;
+    displaySession(eventId);
+    if (FINE_POINTER) wk.text.focus();
+  }
+
+  // Show a session's chat. With focusTimeline, the timeline also moves to its event.
+  function displaySession(eventId, { focusTimeline = false } = {}) {
+    const s = sessions[eventId];
+    if (!s) return;
+    if (work.displayed && work.displayed !== eventId) work.drafts[work.displayed] = wk.text.value;
+    if (work.displayed !== eventId) wk.text.value = work.drafts[eventId] || "";
+    work.displayed = eventId;
+    work.unread.delete(eventId);
+    s.lastActive = Date.now();
+    saveSessions();
+    if (focusTimeline) focusTimelineOn(eventId);
+    renderWork();
+  }
+
+  function endSession(eventId) {
+    const s = sessions[eventId];
+    if (!s) return;
+    s.open = false;
+    // A session nobody typed in leaves nothing behind.
+    if (!s.messages.length && !work.pending.has(eventId)) delete sessions[eventId];
+    delete work.drafts[eventId];
+    if (work.displayed === eventId) {
+      wk.text.value = "";
+      const next = openSessions()[0];
+      work.displayed = null;
+      if (next) displaySession(next.eventId, { focusTimeline: true });
+    }
+    saveSessions();
+    if (!work.displayed) setExpanded(false);
+    renderWork();
+  }
+
+  // The timeline moved: if it now shows an event with an open session, show that chat.
+  function onTimelineFocus(options) {
+    if (work.displayed && options.includes(work.displayed)) return;
+    const hit = options.find((id) => sessions[id] && sessions[id].open);
+    if (hit) displaySession(hit);
+  }
+
+  // Move the timeline to an event (timed: that node; all-day: its day).
+  function focusTimelineOn(eventId) {
+    const ev = eventById(eventId);
+    if (!ev || mode !== "timeline") return;
+    tl.items = timelineItems();
+    tl.auto = false;
+    if (!ev.allDay && tl.items.some((it) => it.ev.id === eventId)) {
+      tl.emptyDay = null;
+      tl.focusId = eventId;
+    } else {
+      const day = startOfDay(parseISO(ev.start));
+      const onDay = tl.items.find((it) => sameDay(it.s, day));
+      tl.emptyDay = onDay ? null : day;
+      tl.focusId = onDay ? onDay.ev.id : "virtual";
+    }
+    tl.seq = makeSeq();
+    tl.focus = Math.max(0, tl.seq.findIndex((it) => seqKey(it) === tl.focusId));
+    tl.lastKey = null; // let the focus hook see the change (it keeps the chosen session)
+    drawTimeline();
+  }
+
+  async function sendMessage(eventId, text) {
+    const s = sessions[eventId];
+    if (!s || work.pending.has(eventId) || !text.trim()) return;
+    const history = s.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({ role: m.role, text: m.text }));
+    s.messages.push({ role: "user", text: text.trim(), at: Date.now() });
+    s.lastActive = Date.now();
+    work.pending.add(eventId);
+    saveSessions();
+    renderWork();
+    try {
+      const ev = eventById(eventId);
+      const s0 = ev ? parseISO(ev.start) : null, e0 = ev ? parseISO(ev.end) : null;
+      const res = await fetch("/api/work", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text.trim(),
+          history,
+          now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
+          event: ev ? {
+            title: ev.title,
+            when: ev.allDay ? `${shortDate(s0)}, all day` : `${shortDate(s0)}, ${fmtRange(s0, e0)}`,
+            location: ev.location || "",
+            calendar: (calOf(ev) || {}).name || "",
+            all_day: !!ev.allDay, is_task: !!ev.taskId, done: !!ev.done,
+          } : { title: s.title },
+          files: filesFor(eventId).map((f) => ({ name: f.name, content: f.content.slice(0, 8000) })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      const names = [];
+      for (const f of data.files || []) { upsertFile(eventId, f.name, f.content, "ai"); names.push(f.name); }
+      if (names.length) saveAttachments();
+      s.messages.push({ role: "assistant", text: data.reply || "", files: names, at: Date.now() });
+    } catch (err) {
+      s.messages.push({ role: "error", text: err.message || "Something went wrong.", at: Date.now() });
+    } finally {
+      work.pending.delete(eventId);
+      if (work.displayed !== eventId) work.unread.add(eventId);
+      saveSessions();
+      renderWork();
+    }
+  }
+
+  // User-attached text files go on the event and into the AI's context.
+  wk.attach.addEventListener("click", (e) => { e.stopPropagation(); wk.file.click(); });
+  wk.file.addEventListener("change", async () => {
+    const id = work.displayed;
+    const s = id && sessions[id];
+    const picked = [...wk.file.files];
+    wk.file.value = "";
+    if (!s || !picked.length) return;
+    for (const f of picked) {
+      if (f.size > 200 * 1024) { s.messages.push({ role: "error", text: `“${f.name}” is too big (text files up to 200 KB).`, at: Date.now() }); continue; }
+      const text = await f.text().catch(() => null);
+      if (text == null || text.includes("\u0000")) { s.messages.push({ role: "error", text: `“${f.name}” isn't a text file.`, at: Date.now() }); continue; }
+      upsertFile(id, f.name, text, "user");
+      s.messages.push({ role: "note", text: `Attached ${f.name}`, at: Date.now() });
+    }
+    saveAttachments();
+    saveSessions();
+    renderWork();
+  });
+
+  // ----- rendering -----
+  function setExpanded(on) {
+    const was = tlEl.root.classList.contains("expanded");
+    tlEl.root.classList.toggle("expanded", !!on);
+    if (was === !!on) return;
+    closeWorkMenu();
+    wk.menu.hidden = true;
+    if (on && work.displayed) focusTimelineOn(work.displayed);
+    else if (mode === "timeline") drawTimeline();
+  }
+
+  const fmtMsg = (t) => escapeHTML(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  function renderWork() {
+    const s = work.displayed && sessions[work.displayed];
+    const expanded = tlEl.root.classList.contains("expanded");
+    if (!s || !s.open) {
+      work.displayed = null;
+      wk.panel.hidden = true;
+      tlEl.root.classList.remove("tl-chat-bar", "tl-chat-compact");
+      if (expanded) setExpanded(false);
+      if (mode === "timeline" && !tl.drag) drawTimeline();
+      return;
+    }
+    const id = s.eventId;
+    const hasMsgs = s.messages.length > 0;
+    wk.panel.hidden = false;
+    tlEl.root.classList.toggle("tl-chat-bar", !expanded && !hasMsgs);
+    tlEl.root.classList.toggle("tl-chat-compact", !expanded && hasMsgs);
+
+    // Header: which session + switcher.
+    const ev = eventById(id);
+    wk.dot.style.background = ev ? colorOf(ev) : "#9aa0a6";
+    wk.title.textContent = sessionTitle(id);
+    const open = openSessions();
+    const others = open.filter((x) => x.eventId !== id);
+    wk.count.textContent = open.length > 1 ? String(open.length) : "";
+    wk.count.classList.toggle("alert", others.some((x) => work.unread.has(x.eventId)));
+    wk.expand.innerHTML = expanded ? ICON_COLLAPSE : ICON_EXPAND;
+    wk.expand.title = expanded ? "Shrink to a small chat" : "Expand";
+    wk.expand.setAttribute("aria-label", wk.expand.title);
+
+    // Files attached to this event.
+    wk.files.innerHTML = "";
+    wk.files.appendChild(attachmentChips(id, { max: expanded ? 8 : 4 }));
+
+    // Messages.
+    const pinned = wk.msgs.scrollHeight - wk.msgs.scrollTop - wk.msgs.clientHeight < 40;
+    wk.msgs.innerHTML = "";
+    for (const m of s.messages) {
+      const b = document.createElement("div");
+      b.className = `wk-msg ${m.role}`;
+      if (m.role === "note") b.innerHTML = `${FILE_ICON}<span>${escapeHTML(m.text)}</span>`;
+      else b.innerHTML = `<div class="wk-bubble">${fmtMsg(m.text)}</div>`;
+      if (m.files && m.files.length) {
+        const row = document.createElement("div");
+        row.className = "att-chips";
+        for (const name of m.files) {
+          const f = filesFor(id).find((x) => x.name.toLowerCase() === name.toLowerCase());
+          if (!f) continue;
+          const c = document.createElement("button");
+          c.type = "button";
+          c.className = "att-chip";
+          c.innerHTML = `${FILE_ICON}<span></span>`;
+          c.querySelector("span").textContent = f.name;
+          c.addEventListener("click", (e) => { e.stopPropagation(); openViewer({ ...f, eventId: id }); });
+          row.appendChild(c);
+        }
+        b.appendChild(row);
+      }
+      wk.msgs.appendChild(b);
+    }
+    if (work.pending.has(id)) {
+      const t = document.createElement("div");
+      t.className = "wk-msg assistant typing";
+      t.innerHTML = `<div class="wk-bubble"><span></span><span></span><span></span></div>`;
+      wk.msgs.appendChild(t);
+    }
+    if (pinned || work.pending.has(id)) wk.msgs.scrollTop = wk.msgs.scrollHeight;
+
+    // Input.
+    wk.text.placeholder = hasMsgs ? "Message" : `What should we work on for “${sessionTitle(id)}”?`;
+    wk.send.disabled = work.pending.has(id);
+    autosizeWork();
+    if (!wk.menu.hidden) renderSwitchMenu();
+    if (mode === "timeline" && !tl.drag) drawTimeline();
+  }
+  function autosizeWork() {
+    wk.text.style.height = "auto";
+    wk.text.style.height = `${Math.min(wk.text.scrollHeight, 140)}px`;
+  }
+
+  // The Work button (compact view): hidden when there's nothing else here to work on.
+  function updateWorkButton() {
+    const choices = tl.options.filter((id) => id !== work.displayed);
+    const show = mode === "timeline" && !tlEl.root.classList.contains("expanded") && choices.length > 0;
+    wk.workBtn.hidden = !show;
+    if (!show) { closeWorkMenu(); return; }
+    wk.workLabel.textContent = choices.length === 1
+      ? `Work on “${sessionTitle(choices[0])}”`
+      : "Work";
+  }
+  function closeWorkMenu() { wk.workMenu.hidden = true; }
+  function workOptionRow(id) {
+    const ev = eventById(id);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    const s0 = parseISO(ev.start), e0 = parseISO(ev.end);
+    b.innerHTML = `<span class="wk-dot"></span><span class="wm-text"><b></b><small></small></span>`;
+    b.querySelector(".wk-dot").style.background = colorOf(ev);
+    b.querySelector("b").textContent = ev.title || "(No title)";
+    b.querySelector("small").textContent = (ev.allDay ? "All day" : fmtRange(s0, e0)) + (ev.taskId ? " · Task" : "")
+      + (sessions[id] && sessions[id].open ? " · open session" : "");
+    b.addEventListener("click", (e) => { e.stopPropagation(); startSession(id); });
+    return b;
+  }
+  wk.workBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const choices = tl.options.filter((id) => id !== work.displayed);
+    if (choices.length === 1) { startSession(choices[0]); return; }
+    // Several things on this day: let the user pick.
+    if (!wk.workMenu.hidden) { closeWorkMenu(); return; }
+    wk.workMenu.innerHTML = `<div class="wm-head">Work on…</div>`;
+    choices.forEach((id) => wk.workMenu.appendChild(workOptionRow(id)));
+    wk.workMenu.hidden = false;
+  });
+  function cardWorkButton(eventId, small = false) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tl-cardwork" + (small ? " small" : "");
+    b.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z"/></svg><span>Work</span>`;
+    b.title = `Work on “${sessionTitle(eventId)}”`;
+    b.addEventListener("click", (e) => { e.stopPropagation(); startSession(eventId); });
+    return b;
+  }
+
+  // Session switcher.
+  function renderSwitchMenu() {
+    wk.menu.innerHTML = `<div class="wm-head">Active sessions</div>`;
+    for (const s of openSessions()) {
+      const ev = eventById(s.eventId);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "menuitemradio");
+      b.setAttribute("aria-checked", String(s.eventId === work.displayed));
+      b.innerHTML = `<span class="wk-dot"></span><span class="wm-text"><b></b><small></small></span><span class="wm-state"></span>`;
+      b.querySelector(".wk-dot").style.background = ev ? colorOf(ev) : "#9aa0a6";
+      b.querySelector("b").textContent = sessionTitle(s.eventId);
+      if (ev) {
+        const s0 = parseISO(ev.start), e0 = parseISO(ev.end);
+        b.querySelector("small").textContent = `${shortDate(s0)} · ${ev.allDay ? "All day" : fmtRange(s0, e0)}`;
+      }
+      const st = b.querySelector(".wm-state");
+      if (work.pending.has(s.eventId)) { st.className = "wm-state busy"; st.title = "Working…"; }
+      else if (work.unread.has(s.eventId)) { st.className = "wm-state unread"; st.title = "New reply"; }
+      else if (s.eventId === work.displayed) st.innerHTML = CHECK_ICON;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        wk.menu.hidden = true;
+        displaySession(s.eventId, { focusTimeline: true });
+      });
+      wk.menu.appendChild(b);
+    }
+  }
+  wk.switchBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!wk.menu.hidden) { wk.menu.hidden = true; return; }
+    renderSwitchMenu();
+    wk.menu.hidden = false;
+  });
+  wk.expand.addEventListener("click", (e) => { e.stopPropagation(); setExpanded(!tlEl.root.classList.contains("expanded")); renderWork(); });
+  wk.close.addEventListener("click", (e) => { e.stopPropagation(); if (work.displayed) endSession(work.displayed); });
+  wk.cancel.addEventListener("click", (e) => { e.stopPropagation(); if (work.displayed) endSession(work.displayed); });
+  wk.form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = work.displayed;
+    const text = wk.text.value;
+    if (!id || !text.trim() || work.pending.has(id)) return;
+    wk.text.value = "";
+    delete work.drafts[id];
+    sendMessage(id, text);
+  });
+  wk.text.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); wk.form.requestSubmit(); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); wk.text.blur(); }
+  });
+  wk.text.addEventListener("input", autosizeWork);
+  // Clicks outside close the small menus.
+  document.addEventListener("click", (e) => {
+    if (!wk.workMenu.hidden && !wk.workMenu.contains(e.target)) closeWorkMenu();
+    if (!wk.menu.hidden && !wk.menu.contains(e.target) && !wk.switchBtn.contains(e.target)) wk.menu.hidden = true;
+  });
 
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
@@ -2276,12 +2768,13 @@
 
   const isTyping = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
     if (e.key === "Escape" && !modeEl.menu.hidden) { closeModeMenu(); return; }
     if (mode === "timeline") {
       // View only: no undo/redo or calendar shortcuts here.
       if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === "ArrowRight") { e.preventDefault(); tlGo(tl.focus + 1); }
-      else if (e.key === "ArrowLeft") { e.preventDefault(); tlGo(tl.focus - 1); }
+      if (e.key === "ArrowRight" || (tl.vertical && e.key === "ArrowDown")) { e.preventDefault(); tlGo(tl.focus + 1); }
+      else if (e.key === "ArrowLeft" || (tl.vertical && e.key === "ArrowUp")) { e.preventDefault(); tlGo(tl.focus - 1); }
       return;
     }
     if (e.key === "Escape") {
