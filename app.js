@@ -280,6 +280,8 @@
       grid.appendChild(col);
     }
 
+    if (wtm.active) drawMeetOverlay();
+
     const sb = el.weekBody.offsetWidth - el.weekBody.clientWidth;
     document.documentElement.style.setProperty("--scrollbar", `${sb}px`);
   }
@@ -1823,6 +1825,7 @@
   }
   function setView(v) {
     if (v === view) return;
+    if (wtm.active && v !== "week") return; // Whentomeet paints over the week view
     hidePopover();
     view = v;
     saveViewPref();
@@ -1850,7 +1853,7 @@
     hidePopover();
     if (quickAddOpen()) closeQuickAdd();
     tlEl.root.hidden = m !== "timeline";
-    if (m === "timeline") { tl.auto = true; buildTimeline(); renderWork(); }
+    if (m === "timeline") { if (wtm.active) exitMeet(); tl.auto = true; buildTimeline(); renderWork(); }
     else { setExpanded(false); render(); }
   }
   function closeModeMenu() {
@@ -2749,6 +2752,672 @@
     if (!wk.menu.hidden && !wk.menu.contains(e.target) && !wk.switchBtn.contains(e.target)) wk.menu.hidden = true;
   });
 
+  // ---------- Whentomeet: find a time with other people ----------
+  // Create (pick dates or weekdays → time window → name → share/add people), then open it to paint
+  // your availability over the week view, see the group's overlap, or one person's availability.
+  const MEET_KEY = "nl-calendar-meets-v1";
+  // Made-up people for the prototype (example.com is reserved for examples).
+  const CONTACTS = [
+    { name: "Alex Rivera", email: "alex.rivera@example.com" },
+    { name: "Priya Shah", email: "priya.shah@example.com" },
+    { name: "Jordan Lee", email: "jordan.lee@example.com" },
+    { name: "Sam Chen", email: "sam.chen@example.com" },
+    { name: "Maya Thompson", email: "maya.thompson@example.com" },
+    { name: "Diego Martinez", email: "diego.martinez@example.com" },
+    { name: "Hannah Kim", email: "hannah.kim@example.com" },
+    { name: "Omar Haddad", email: "omar.haddad@example.com" },
+  ];
+  const AVATAR_COLORS = ["#1a73e8", "#e8710a", "#188038", "#a142f4", "#d93025", "#12b5cb", "#f538a0", "#5f6368"];
+  const SLOT_MIN = 30;
+  let meets = loadJSON(MEET_KEY, []);
+  const saveMeets = () => { try { localStorage.setItem(MEET_KEY, JSON.stringify(meets)); } catch { /* storage full */ } };
+  const wtm = { wizard: null, active: null, view: "mine", member: null, sel: null, paint: null };
+  const wz = {
+    mini: $("miniCal"), box: $("wtmWizard"), list: $("wtmList"), items: $("wtmItems"),
+    panel: $("wtmPanel"), newBtn: $("wtmNew"),
+  };
+  const meetById = (id) => meets.find((m) => m.id === id);
+  const activeMeet = () => wtm.active && meetById(wtm.active);
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hourLabel = (h) => (h % 24 === 0 ? "12 AM" : h === 12 ? "12 PM" : h < 12 ? `${h} AM` : `${h - 12} PM`);
+  const initials = (name) => name.split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  const avatarColor = (key) => AVATAR_COLORS[hashStr(key) % AVATAR_COLORS.length];
+
+  // Seeded random numbers so each person's made-up availability stays the same for an event.
+  function hashStr(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
+    return h >>> 0;
+  }
+  function seeded(seed) {
+    return () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // A meeting "day" is a date ("2026-11-18") or a weekday ("3"); slots are 30-minute cells inside the window.
+  const meetDays = (m) => (m.mode === "dates" ? m.dates : m.days.map(String));
+  const slotsPerDay = (m) => ((m.end - m.start) * 60) / SLOT_MIN;
+  const slotKey = (dk, i) => `${dk}#${i}`;
+  function meetDayKeyFor(m, date) {
+    if (m.mode === "dates") { const k = dayKey(date); return m.dates.includes(k) ? k : null; }
+    return m.days.includes(date.getDay()) ? String(date.getDay()) : null;
+  }
+  function slotTimes(m, date, i) {
+    const s = new Date(startOfDay(date).getTime() + (m.start * 60 + i * SLOT_MIN) * 60000);
+    return [s, new Date(s.getTime() + SLOT_MIN * 60000)];
+  }
+  const busyAt = (s, e) => events.some((ev) => !ev.allDay && isVisible(ev) && parseISO(ev.start) < e && parseISO(ev.end) > s);
+  // Your availability: what you painted, otherwise free unless an existing event is there.
+  function mineFree(m, dk, i, date) {
+    const k = slotKey(dk, i);
+    if (Object.prototype.hasOwnProperty.call(m.mine, k)) return m.mine[k];
+    const [s, e] = slotTimes(m, date, i);
+    return !busyAt(s, e);
+  }
+  const availCache = new WeakMap();
+  function memberFree(mem, dk, i) {
+    let set = availCache.get(mem);
+    if (!set) { set = new Set(mem.avail); availCache.set(mem, set); }
+    return set.has(slotKey(dk, i));
+  }
+  function randomAvail(m, seedText) {
+    const r = seeded(hashStr(`${m.id}|${seedText}`));
+    const n = slotsPerDay(m);
+    const out = new Set();
+    for (const dk of meetDays(m)) {
+      const roll = r();
+      if (roll < 0.12) continue;                                   // busy all day
+      if (roll > 0.9) { for (let i = 0; i < n; i++) out.add(slotKey(dk, i)); continue; } // free all day
+      const blocks = 1 + Math.floor(r() * 2);
+      for (let b = 0; b < blocks; b++) {
+        const len = 2 + Math.floor(r() * Math.max(1, n / 2));
+        const st = Math.floor(r() * Math.max(1, n - len + 1));
+        for (let i = st; i < Math.min(n, st + len); i++) out.add(slotKey(dk, i));
+      }
+    }
+    return [...out];
+  }
+  function addMember(m, name, email) {
+    if (m.members.some((p) => p.email.toLowerCase() === email.toLowerCase())) return false;
+    m.members.push({ id: uid(), name, email, avail: randomAvail(m, email.toLowerCase()) });
+    saveMeets();
+    return true;
+  }
+  function meetSummary(m) {
+    let when;
+    if (m.mode === "days") when = m.days.map((d) => DAY_NAMES[d]).join(", ");
+    else {
+      const ds = m.dates.map(parseISO);
+      const f = (d, withMonth = true) => d.toLocaleDateString(undefined, withMonth ? { month: "short", day: "numeric" } : { day: "numeric" });
+      if (ds.length <= 3) when = ds.map((d, i) => f(d, i === 0 || d.getMonth() !== ds[i - 1].getMonth())).join(", ");
+      else when = `${f(ds[0])} – ${f(ds[ds.length - 1])} (${ds.length} days)`;
+    }
+    return `${when} · ${hourLabel(m.start)} – ${hourLabel(m.end)}`;
+  }
+  const demoLink = (m) => `https://whentomeet.example/e/${m.id}`;
+  async function copyLink(m, btn) {
+    try { await navigator.clipboard.writeText(demoLink(m)); } catch { /* the demo link doesn't need to land anywhere */ }
+    const old = btn.innerHTML;
+    btn.textContent = "Link copied (demo link)";
+    btn.classList.add("done");
+    setTimeout(() => { btn.innerHTML = old; btn.classList.remove("done"); }, 1800);
+  }
+
+  // Email box that lists the made-up people when focused; typing filters, Enter adds a typed address.
+  function peopleAdder(m, onChange) {
+    const wrap = document.createElement("div");
+    wrap.className = "wtm-adder";
+    wrap.innerHTML = `<input type="email" placeholder="Add people by email" aria-label="Add people by email" autocomplete="off">
+      <div class="wtm-suggest" role="listbox" hidden></div>`;
+    const input = wrap.querySelector("input"), box = wrap.querySelector(".wtm-suggest");
+    const show = () => {
+      const q = input.value.trim().toLowerCase();
+      const opts = CONTACTS.filter((c) => !m.members.some((p) => p.email === c.email)
+        && (!q || c.name.toLowerCase().includes(q) || c.email.includes(q)));
+      box.innerHTML = "";
+      for (const c of opts) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute("role", "option");
+        b.innerHTML = `<span class="wtm-av"></span><span class="wtm-pt"><b></b><small></small></span>`;
+        b.querySelector(".wtm-av").textContent = initials(c.name);
+        b.querySelector(".wtm-av").style.background = avatarColor(c.email);
+        b.querySelector("b").textContent = c.name;
+        b.querySelector("small").textContent = c.email;
+        // mousedown so the input's blur doesn't close the list first
+        b.addEventListener("mousedown", (e) => { e.preventDefault(); addMember(m, c.name, c.email); input.value = ""; onChange(); show(); });
+        box.appendChild(b);
+      }
+      if (!opts.length) box.innerHTML = `<div class="wtm-suggest-empty">${q ? "Press Enter to add this email" : "Everyone's been added"}</div>`;
+      box.hidden = false;
+    };
+    input.addEventListener("focus", show);
+    input.addEventListener("input", show);
+    input.addEventListener("blur", () => setTimeout(() => { box.hidden = true; }, 120));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const v = input.value.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
+        const known = CONTACTS.find((c) => c.email === v.toLowerCase());
+        const name = known ? known.name : v.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        addMember(m, name, known ? known.email : v);
+        input.value = "";
+        onChange();
+        show();
+      } else if (e.key === "Escape") { e.stopPropagation(); input.blur(); }
+    });
+    return wrap;
+  }
+
+  // ----- creation wizard (inside the mini calendar) -----
+  function openWizard() {
+    if (wtm.active) exitMeet();
+    wtm.wizard = { step: "dates", mode: "dates", dates: new Set(), days: new Set(), offset: 0, start: 9, end: 17, name: "", meetId: null };
+    renderWizard();
+  }
+  function closeWizard() {
+    wtm.wizard = null;
+    renderWizard();
+    renderMeetList();
+  }
+  function renderWizard() {
+    const w = wtm.wizard;
+    wz.mini.classList.toggle("wtm-on", !!w);
+    wz.box.hidden = !w;
+    wz.newBtn.setAttribute("aria-pressed", String(!!w));
+    if (!w) { renderMini(); return; }
+    const box = wz.box;
+    box.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "wz-head";
+    const titles = { dates: "New Whentomeet", times: "What times?", name: "Name the event", share: "Invite people" };
+    head.innerHTML = `<span class="wz-step">Step ${["dates", "times", "name", "share"].indexOf(w.step) + 1} of 4</span><span class="wz-title"></span>`;
+    head.querySelector(".wz-title").textContent = titles[w.step];
+    box.appendChild(head);
+    const actions = document.createElement("div");
+    actions.className = "wz-actions";
+    const btn = (label, cls, fn, disabled = false) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `wz-btn ${cls}`;
+      b.textContent = label;
+      b.disabled = disabled;
+      b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
+      return b;
+    };
+
+    if (w.step === "dates") {
+      const seg = document.createElement("div");
+      seg.className = "wz-seg";
+      seg.innerHTML = `<button type="button" data-wmode="dates">Specific dates</button><button type="button" data-wmode="days">Days of the week</button>`;
+      seg.querySelectorAll("button").forEach((b) => {
+        b.setAttribute("aria-pressed", String(b.dataset.wmode === w.mode));
+        b.addEventListener("click", (e) => { e.stopPropagation(); w.mode = b.dataset.wmode; renderWizard(); });
+      });
+      box.appendChild(seg);
+      if (w.mode === "dates") box.appendChild(wizardDateGrid(w));
+      else {
+        const days = document.createElement("div");
+        days.className = "wz-days";
+        DAY_NAMES.forEach((n, d) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.textContent = n;
+          b.setAttribute("aria-pressed", String(w.days.has(d)));
+          b.addEventListener("click", (e) => { e.stopPropagation(); w.days.has(d) ? w.days.delete(d) : w.days.add(d); renderWizard(); });
+          days.appendChild(b);
+        });
+        box.appendChild(days);
+      }
+      const hint = document.createElement("div");
+      hint.className = "wz-hint";
+      hint.textContent = w.mode === "dates" ? "Click or drag to choose the dates." : "Choose the weekdays that work.";
+      box.appendChild(hint);
+      const count = w.mode === "dates" ? w.dates.size : w.days.size;
+      actions.append(btn("Cancel", "", closeWizard), btn("Next", "primary", () => { w.step = "times"; renderWizard(); }, !count));
+    } else if (w.step === "times") {
+      const t = document.createElement("div");
+      t.className = "wz-times";
+      const sel = (label, value, from, to, key) => {
+        const row = document.createElement("label");
+        row.className = "wz-time";
+        row.innerHTML = `<span></span><select></select>`;
+        row.querySelector("span").textContent = label;
+        const s = row.querySelector("select");
+        for (let h = from; h <= to; h++) s.add(new Option(h === 24 ? "12 AM (midnight)" : hourLabel(h), h));
+        s.value = value;
+        s.addEventListener("change", () => {
+          w[key] = Number(s.value);
+          if (w.end <= w.start) { if (key === "start") w.end = Math.min(24, w.start + 1); else w.start = Math.max(0, w.end - 1); }
+          renderWizard();
+        });
+        return row;
+      };
+      t.append(sel("No earlier than", w.start, 0, 23, "start"), sel("No later than", w.end, 1, 24, "end"));
+      box.appendChild(t);
+      actions.append(btn("Back", "", () => { w.step = "dates"; renderWizard(); }), btn("Next", "primary", () => { w.step = "name"; renderWizard(); }));
+    } else if (w.step === "name") {
+      const input = document.createElement("input");
+      input.className = "wz-name";
+      input.type = "text";
+      input.maxLength = 80;
+      input.placeholder = "e.g. Team kickoff";
+      input.setAttribute("aria-label", "Event name");
+      input.value = w.name;
+      const create = btn("Create", "primary", () => createMeet(), !w.name.trim());
+      input.addEventListener("input", () => { w.name = input.value; create.disabled = !w.name.trim(); });
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter" && w.name.trim()) { e.preventDefault(); createMeet(); } });
+      box.appendChild(input);
+      const sum = document.createElement("div");
+      sum.className = "wz-hint";
+      sum.textContent = meetSummary({ mode: w.mode, dates: [...w.dates].sort(), days: [...w.days].sort(), start: w.start, end: w.end });
+      box.appendChild(sum);
+      actions.append(btn("Back", "", () => { w.step = "times"; renderWizard(); }), create);
+      setTimeout(() => input.focus(), 0);
+    } else if (w.step === "share") {
+      const m = meetById(w.meetId);
+      const sum = document.createElement("div");
+      sum.className = "wz-made";
+      sum.innerHTML = `<b></b><small></small>`;
+      sum.querySelector("b").textContent = `Whentomeet for ${m.name}`;
+      sum.querySelector("small").textContent = meetSummary(m);
+      box.appendChild(sum);
+      const copy = btn("", "link", () => copyLink(m, copy));
+      copy.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></svg>Copy shareable link`;
+      box.appendChild(copy);
+      const chips = document.createElement("div");
+      chips.className = "wz-chips";
+      const paintChips = () => {
+        chips.innerHTML = "";
+        for (const p of m.members) {
+          const c = document.createElement("span");
+          c.className = "wz-chip";
+          c.innerHTML = `<span class="wtm-av"></span><span class="wz-chip-name"></span><button type="button" aria-label="Remove">×</button>`;
+          c.querySelector(".wtm-av").textContent = initials(p.name);
+          c.querySelector(".wtm-av").style.background = avatarColor(p.email);
+          c.querySelector(".wz-chip-name").textContent = p.name;
+          c.querySelector("button").addEventListener("click", (e) => {
+            e.stopPropagation();
+            m.members = m.members.filter((x) => x !== p);
+            saveMeets();
+            paintChips();
+          });
+          chips.appendChild(c);
+        }
+      };
+      paintChips();
+      box.appendChild(peopleAdder(m, paintChips));
+      box.appendChild(chips);
+      actions.append(btn("Done", "primary", closeWizard));
+    }
+    box.appendChild(actions);
+  }
+
+  // Date picker: first row is the current week, no "current week" highlight; click or drag to select.
+  function wizardDateGrid(w) {
+    const wrap = document.createElement("div");
+    const first = addDays(startOfWeek(new Date()), w.offset * 7);
+    const last = addDays(first, 41);
+    const bar = document.createElement("div");
+    bar.className = "wz-monthbar";
+    const m1 = MONTHS[first.getMonth()].slice(0, 3), m2 = MONTHS[last.getMonth()].slice(0, 3);
+    bar.innerHTML = `<span></span><div>
+      <button type="button" class="icon-btn small" aria-label="Earlier weeks"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg></button>
+      <button type="button" class="icon-btn small" aria-label="Later weeks"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></button></div>`;
+    bar.querySelector("span").textContent = m1 === m2 ? `${MONTHS[first.getMonth()]} ${first.getFullYear()}` : `${m1} – ${m2} ${last.getFullYear()}`;
+    const [prev, next] = bar.querySelectorAll("button");
+    prev.disabled = w.offset <= 0;
+    prev.addEventListener("click", (e) => { e.stopPropagation(); w.offset = Math.max(0, w.offset - 4); renderWizard(); });
+    next.addEventListener("click", (e) => { e.stopPropagation(); w.offset += 4; renderWizard(); });
+    wrap.appendChild(bar);
+    const grid = document.createElement("div");
+    grid.className = "mini-grid wz-grid";
+    grid.innerHTML = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<div class="dow">${d}</div>`).join("");
+    const today = startOfDay(new Date());
+    for (let i = 0; i < 42; i++) {
+      const d = addDays(first, i);
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.date = dayKey(d);
+      b.textContent = d.getDate() === 1 ? `${MONTHS[d.getMonth()].slice(0, 3)} 1` : d.getDate();
+      if (d.getDate() === 1) b.classList.add("first");
+      if (d < today) b.disabled = true;
+      if (sameDay(d, today)) b.classList.add("is-today");
+      b.classList.toggle("sel", w.dates.has(b.dataset.date));
+      grid.appendChild(b);
+    }
+    // Drag selection: the first cell decides whether the drag adds or removes dates.
+    let painting = null;
+    const apply = (b) => {
+      if (!b || b.disabled || !b.dataset.date) return;
+      if (painting.add) w.dates.add(b.dataset.date); else w.dates.delete(b.dataset.date);
+      b.classList.toggle("sel", painting.add);
+    };
+    grid.addEventListener("pointerdown", (e) => {
+      const b = e.target.closest("button[data-date]");
+      if (!b || b.disabled) return;
+      e.preventDefault();
+      painting = { add: !w.dates.has(b.dataset.date) };
+      grid.setPointerCapture(e.pointerId);
+      apply(b);
+    });
+    grid.addEventListener("pointermove", (e) => {
+      if (!painting) return;
+      const n = document.elementFromPoint(e.clientX, e.clientY);
+      apply(n && n.closest && n.closest(".wz-grid button[data-date]"));
+    });
+    const end = () => { if (painting) { painting = null; renderWizard(); } };
+    grid.addEventListener("pointerup", end);
+    grid.addEventListener("pointercancel", end);
+    wrap.appendChild(grid);
+    return wrap;
+  }
+
+  function createMeet() {
+    const w = wtm.wizard;
+    if (!w || !w.name.trim()) return;
+    const m = {
+      id: "m" + uid(), name: w.name.trim(), mode: w.mode,
+      dates: [...w.dates].sort(), days: [...w.days].sort((a, b) => a - b),
+      start: w.start, end: w.end, members: [], mine: {}, createdAt: Date.now(),
+    };
+    meets.push(m);
+    saveMeets();
+    w.meetId = m.id;
+    w.step = "share";
+    renderWizard();
+    renderMeetList();
+  }
+
+  // ----- list in the sidebar -----
+  const MEET_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`;
+  function renderMeetList() {
+    wz.list.hidden = !meets.length;
+    wz.items.innerHTML = "";
+    for (const m of meets) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "wtm-item";
+      b.innerHTML = `${MEET_ICON}<span class="wtm-pt"><b></b><small></small></span>`;
+      b.querySelector("b").textContent = `Whentomeet for ${m.name}`;
+      b.querySelector("small").textContent = `${m.members.length + 1} people · ${meetSummary(m)}`;
+      b.addEventListener("click", (e) => { e.stopPropagation(); enterMeet(m.id); });
+      li.appendChild(b);
+      wz.items.appendChild(li);
+    }
+  }
+
+  // ----- Whentomeet mode -----
+  function enterMeet(id) {
+    const m = meetById(id);
+    if (!m) return;
+    if (wtm.wizard) { wtm.wizard = null; renderWizard(); }
+    if (mode !== "calendar") setMode("calendar");
+    hidePopover();
+    wtm.active = id; wtm.view = "mine"; wtm.member = null; wtm.sel = null; wtm.paint = null;
+    // The sidebar becomes the Whentomeet panel, so make sure it's showing.
+    el.sidebar.classList.remove("collapsed");
+    if (isMobile()) el.sidebar.classList.add("open");
+    syncQuickAdd();
+    el.sidebar.classList.add("meet-mode");
+    if (view !== "week") { view = "week"; saveViewPref(); }
+    goToDate(m.mode === "dates" && m.dates.length ? parseISO(m.dates.find((d) => parseISO(d) >= startOfDay(new Date())) || m.dates[0]) : new Date(), false);
+    render();
+    renderMeetPanel();
+    el.weekBody.scrollTop = hourPx() * Math.max(0, m.start - 0.5);
+  }
+  function exitMeet() {
+    if (!wtm.active) return;
+    wtm.active = null; wtm.paint = null; wtm.sel = null;
+    el.sidebar.classList.remove("meet-mode");
+    el.main.classList.remove("wtm-hide-events");
+    wz.panel.hidden = true;
+    renderMeetList();
+    render();
+  }
+  function setMeetView(v, memberId = null) {
+    wtm.view = v; wtm.member = memberId; wtm.sel = null;
+    renderMeetPanel();
+    renderGrid();
+  }
+
+  // Colour layer over each day column of the week view.
+  function drawMeetOverlay() {
+    const m = activeMeet();
+    el.main.classList.toggle("wtm-hide-events", !!m && wtm.view !== "mine");
+    if (!m) return;
+    const people = 1 + m.members.length;
+    const member = wtm.view === "member" && m.members.find((p) => p.id === wtm.member);
+    dayCols().forEach((col, ci) => {
+      const date = addDays(weekStart, ci);
+      const dk = meetDayKeyFor(m, date);
+      const layer = document.createElement("div");
+      layer.className = "wtm-layer" + (dk ? "" : " off");
+      layer.dataset.col = ci;
+      if (dk) {
+        for (let i = 0; i < slotsPerDay(m); i++) {
+          const cell = document.createElement("div");
+          cell.className = "wtm-cell";
+          cell.dataset.dk = dk;
+          cell.dataset.i = i;
+          cell.dataset.col = ci;
+          cell.dataset.date = dayKey(date);
+          cell.style.top = `calc(var(--hour) * ${m.start + (i * SLOT_MIN) / 60})`;
+          cell.style.height = `calc(var(--hour) * ${SLOT_MIN / 60})`;
+          if (i % 2 === 0) cell.classList.add("hour");
+          if (wtm.view === "group") {
+            let n = mineFree(m, dk, i, date) ? 1 : 0;
+            for (const p of m.members) if (memberFree(p, dk, i)) n++;
+            const ratio = n / people;
+            cell.style.background = n ? `rgba(52,168,83,${(0.18 + 0.72 * ratio).toFixed(3)})` : "";
+            cell.classList.add(n ? "g" : "busy");
+            cell.title = `${n}/${people} available`;
+            if (wtm.sel && wtm.sel.dk === dk && wtm.sel.i === i) cell.classList.add("sel");
+          } else if (member) {
+            cell.classList.add(memberFree(member, dk, i) ? "free" : "busy");
+          } else {
+            cell.classList.add(mineFree(m, dk, i, date) ? "free" : "busy");
+          }
+          layer.appendChild(cell);
+        }
+      }
+      col.appendChild(layer);
+    });
+  }
+
+  // Painting your availability: drag a rectangle; the first cell decides free or busy.
+  function meetCellAt(x, y) {
+    const n = document.elementFromPoint(x, y);
+    return n && n.closest && n.closest(".wtm-cell");
+  }
+  function meetDown(e) {
+    const cell = e.target.closest(".wtm-cell");
+    if (!cell || e.button !== 0) return;
+    const m = activeMeet();
+    const dk = cell.dataset.dk, i = Number(cell.dataset.i);
+    if (wtm.view === "group") {
+      wtm.sel = { dk, i, date: cell.dataset.date };
+      el.weekGrid.querySelectorAll(".wtm-cell.sel").forEach((c) => c.classList.remove("sel"));
+      cell.classList.add("sel");
+      renderMeetPanel();
+      return;
+    }
+    if (wtm.view !== "mine" || !m) return;
+    e.preventDefault();
+    const pos = { col: Number(cell.dataset.col), i };
+    wtm.paint = { target: !cell.classList.contains("free"), a: pos, b: pos };
+    el.weekGrid.setPointerCapture(e.pointerId);
+    previewPaint();
+  }
+  function meetMove(e) {
+    const cell = meetCellAt(e.clientX, e.clientY);
+    if (!cell) return;
+    wtm.paint.b = { col: Number(cell.dataset.col), i: Number(cell.dataset.i) };
+    previewPaint();
+  }
+  const inPaintRect = (cell) => {
+    const p = wtm.paint, c = Number(cell.dataset.col), i = Number(cell.dataset.i);
+    return c >= Math.min(p.a.col, p.b.col) && c <= Math.max(p.a.col, p.b.col)
+      && i >= Math.min(p.a.i, p.b.i) && i <= Math.max(p.a.i, p.b.i);
+  };
+  function previewPaint() {
+    const m = activeMeet();
+    el.weekGrid.querySelectorAll(".wtm-cell").forEach((cell) => {
+      const free = inPaintRect(cell) ? wtm.paint.target : mineFree(m, cell.dataset.dk, Number(cell.dataset.i), parseISO(cell.dataset.date));
+      cell.classList.toggle("free", free);
+      cell.classList.toggle("busy", !free);
+    });
+  }
+  function meetUp(e) {
+    const m = activeMeet();
+    try { el.weekGrid.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    if (m) {
+      el.weekGrid.querySelectorAll(".wtm-cell").forEach((cell) => {
+        if (inPaintRect(cell)) m.mine[slotKey(cell.dataset.dk, Number(cell.dataset.i))] = wtm.paint.target;
+      });
+      saveMeets();
+    }
+    wtm.paint = null;
+    suppressClick = true;
+    setTimeout(() => (suppressClick = false), 0);
+    renderGrid();
+  }
+
+  // Sidebar panel while a Whentomeet is open.
+  function renderMeetPanel() {
+    const m = activeMeet();
+    const p = wz.panel;
+    p.hidden = !m;
+    if (!m) return;
+    const people = 1 + m.members.length;
+    p.innerHTML = `
+      <div class="wtm-top">
+        <button type="button" class="wtm-block" title="Back to the normal calendar">${MEET_ICON}<span class="wtm-pt"><b></b><small></small></span></button>
+        <button type="button" class="icon-btn small wtm-x" aria-label="Close Whentomeet" title="Close Whentomeet">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="wtm-seg" role="tablist">
+        <button type="button" role="tab" data-v="mine">My availability</button>
+        <button type="button" role="tab" data-v="group">Group availability</button>
+      </div>
+      <div class="wtm-help"></div>
+      <div class="wtm-info" hidden></div>
+      <div class="wtm-people-head">People (${people})</div>
+      <ul class="wtm-people"></ul>
+      <div class="wtm-add-slot"></div>
+      <div class="wtm-foot">
+        <button type="button" class="wz-btn link wtm-copy"></button>
+        <button type="button" class="wtm-del">Delete this Whentomeet</button>
+      </div>`;
+    p.querySelector(".wtm-block b").textContent = `Whentomeet for ${m.name}`;
+    p.querySelector(".wtm-block small").textContent = meetSummary(m);
+    p.querySelector(".wtm-block").addEventListener("click", (e) => { e.stopPropagation(); exitMeet(); });
+    p.querySelector(".wtm-x").addEventListener("click", (e) => { e.stopPropagation(); exitMeet(); });
+    p.querySelectorAll("[data-v]").forEach((b) => {
+      b.setAttribute("aria-selected", String(wtm.view === b.dataset.v));
+      b.addEventListener("click", (e) => { e.stopPropagation(); setMeetView(b.dataset.v); });
+    });
+
+    const help = p.querySelector(".wtm-help");
+    if (wtm.view === "mine") {
+      help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Busy</div>
+        Green is free time with nothing on your calendar; gray already has an event. Drag on the calendar to mark more time free or busy.`;
+    } else if (wtm.view === "group") {
+      help.innerHTML = `<div class="wtm-scale"><span>0/${people}</span><span class="bar"></span><span>${people}/${people}</span></div>
+        The greener a time, the more people are free. Click a time to see who.`;
+    } else {
+      const mem = m.members.find((x) => x.id === wtm.member);
+      help.innerHTML = `<div class="wtm-legend2"><span class="sw free"></span>Available <span class="sw busy"></span>Not available</div>`;
+      const t = document.createElement("div");
+      t.textContent = `Showing ${mem ? mem.name : "this person"}'s availability.`;
+      help.appendChild(t);
+    }
+
+    // Who is free at the selected time (group view).
+    const info = p.querySelector(".wtm-info");
+    if (wtm.view === "group" && wtm.sel) {
+      const date = parseISO(wtm.sel.date);
+      const [s, e] = slotTimes(m, date, wtm.sel.i);
+      const all = [{ name: "You", free: mineFree(m, wtm.sel.dk, wtm.sel.i, date), key: "you" },
+        ...m.members.map((x) => ({ name: x.name, free: memberFree(x, wtm.sel.dk, wtm.sel.i), key: x.email }))];
+      const yes = all.filter((x) => x.free), no = all.filter((x) => !x.free);
+      const label = m.mode === "days" ? DAY_NAMES[Number(wtm.sel.dk)] : date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      info.hidden = false;
+      info.innerHTML = `<div class="wtm-info-when"><b></b><span></span></div>
+        <div class="wtm-info-cols"><div><div class="wtm-info-h ok">Available (${yes.length}/${all.length})</div><ul class="ok"></ul></div>
+        <div><div class="wtm-info-h no">Unavailable (${no.length}/${all.length})</div><ul class="no"></ul></div></div>`;
+      info.querySelector("b").textContent = label;
+      info.querySelector(".wtm-info-when span").textContent = fmtRange(s, e);
+      for (const [list, sel] of [[yes, "ul.ok"], [no, "ul.no"]]) {
+        const ul = info.querySelector(sel);
+        for (const x of list) { const li = document.createElement("li"); li.textContent = x.name; ul.appendChild(li); }
+        if (!list.length) ul.innerHTML = `<li class="none">Nobody</li>`;
+      }
+    }
+
+    // People: "You" opens your editable availability; a member shows theirs.
+    const ul = p.querySelector(".wtm-people");
+    const row = (name, sub, key, active, onClick, removable) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<button type="button" class="wtm-person"><span class="wtm-av"></span><span class="wtm-pt"><b></b><small></small></span></button>`;
+      const b = li.querySelector("button");
+      b.classList.toggle("on", active);
+      b.querySelector(".wtm-av").textContent = initials(name);
+      b.querySelector(".wtm-av").style.background = key === "you" ? "#7b1fa2" : avatarColor(key);
+      b.querySelector("b").textContent = name;
+      b.querySelector("small").textContent = sub;
+      b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+      if (removable) {
+        const x = document.createElement("button");
+        x.type = "button";
+        x.className = "wtm-remove";
+        x.setAttribute("aria-label", `Remove ${name}`);
+        x.title = "Remove";
+        x.textContent = "×";
+        x.addEventListener("click", (e) => { e.stopPropagation(); removable(); });
+        li.appendChild(x);
+      }
+      ul.appendChild(li);
+    };
+    row("You", "Edit your availability", "you", wtm.view === "mine", () => setMeetView("mine"));
+    for (const mem of m.members) {
+      row(mem.name, mem.email, mem.email, wtm.view === "member" && wtm.member === mem.id, () => setMeetView("member", mem.id), () => {
+        m.members = m.members.filter((x) => x !== mem);
+        saveMeets();
+        if (wtm.member === mem.id) wtm.view = "mine";
+        wtm.sel = null;
+        renderMeetPanel();
+        renderGrid();
+      });
+    }
+    p.querySelector(".wtm-add-slot").appendChild(peopleAdder(m, () => { renderMeetPanel(); renderGrid(); }));
+    const copy = p.querySelector(".wtm-copy");
+    copy.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></svg>Copy shareable link`;
+    copy.addEventListener("click", (e) => { e.stopPropagation(); copyLink(m, copy); });
+    p.querySelector(".wtm-del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!window.confirm(`Delete “Whentomeet for ${m.name}”? Everyone's availability for it will be lost.`)) return;
+      meets = meets.filter((x) => x !== m);
+      saveMeets();
+      exitMeet();
+    });
+  }
+
+  wz.newBtn.addEventListener("click", (e) => { e.stopPropagation(); if (wtm.wizard) closeWizard(); else openWizard(); });
+  // Grid pointer handling in Whentomeet mode runs before the normal event drag/create handlers.
+  el.weekGrid.addEventListener("pointerdown", (e) => { if (wtm.active) { e.stopImmediatePropagation(); meetDown(e); } }, true);
+  el.weekGrid.addEventListener("pointermove", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); meetMove(e); } }, true);
+  el.weekGrid.addEventListener("pointerup", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); meetUp(e); } }, true);
+  el.weekGrid.addEventListener("pointercancel", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); wtm.paint = null; renderGrid(); } }, true);
+  el.weekHead.addEventListener("pointerdown", (e) => { if (wtm.active) e.stopImmediatePropagation(); }, true);
+
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
   $("prevBtn").onclick = () => step(-1);
@@ -2894,7 +3563,7 @@
     else if (key === "j" || key === "n") step(1);
     else if (key === "k" || key === "p") step(-1);
   });
-  const dragging = () => drag || tdrag || hdrag;
+  const dragging = () => drag || tdrag || hdrag || wtm.paint;
   window.addEventListener("resize", () => {
     syncQuickAdd();
     if (mode === "timeline") { if (!tl.drag) drawTimeline(); }
@@ -2905,6 +3574,7 @@
   render();
   renderTasks();
   renderCalendars();
+  renderMeetList();
   syncQuickAdd();
   setMode(mode);
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar

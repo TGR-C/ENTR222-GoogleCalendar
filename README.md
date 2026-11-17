@@ -36,6 +36,20 @@ You can also work with the grid directly:
   The AI box can do all of this too ("make a Health tag in green and put the gym in it", "hide Classes").
 - Every change (AI or drag) can be undone/redone from the sidebar or the keyboard.
 
+## Whentomeet (find a time with others)
+
+- The people icon next to the mini calendar starts a new Whentomeet. The mini calendar turns into a short
+  setup: pick **specific dates** (click or drag; the first row is the current week) or **days of the week**,
+  then **No earlier than / No later than**, then a **name**, then **share**: copy a (demo) link or add people
+  by email — clicking the box lists made-up people, and each person gets random but fixed availability.
+- **Done** adds a "Whentomeet for <event>" line under a new **Whentomeet** section. Clicking it opens the
+  event: the line moves to the top left, the sidebar becomes the Whentomeet panel, and the week view gets a
+  green/gray layer over the chosen days and hours — green where you have nothing scheduled, gray (with your
+  event still visible, washed out) where you do. Drag to mark more time free or busy.
+- **Group availability** shows only the overlap (greener = more people free); click a time to see who is
+  and isn't available. Click a person to see just their availability.
+- Close with the ✕ or by clicking the top line again. Everything is stored in the browser.
+
 ## Action Timeline mode
 
 Click **Calendar ▾** (top left) and pick **Action Timeline** for a read-only "what's now / what's next" view:
