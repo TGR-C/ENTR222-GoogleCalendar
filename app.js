@@ -42,6 +42,12 @@
     "ENTR 222 lecture": "cal-classes", "Office hours": "cal-classes",
     "Lunch with Alex": "cal-personal", "Dinner": "cal-personal",
     "Gym": "cal-fitness", "Hike": "cal-fitness",
+    "Coffee with mentor": "cal-startup", "Investor call": "cal-startup", "Market research": "cal-startup",
+    "Demo day": "cal-startup",
+    "Study group": "cal-classes", "ENTR 222 midterm": "cal-classes",
+    "Meal prep": "cal-personal", "Movie night": "cal-personal", "Brunch with family": "cal-personal",
+    "Lunch with Priya": "cal-personal", "Team dinner": "cal-personal",
+    "Yoga": "cal-fitness", "Soccer game": "cal-fitness",
   };
   const TASK_KEY = "nl-calendar-tasks-v1";
   const VIEW_KEY = "nl-calendar-view";
@@ -80,7 +86,7 @@
   let events = loadEvents();
   migrateEvents();
   let tasks = loadTasks();          // [{id, title}] — the sidebar to-do list
-  let view = loadView();           // "week" | "month"
+  let view = loadView();           // "day" | "week" | "month" | "year"
   let focus = startOfDay(new Date()); // the date being looked at
   let weekStart = startOfWeek(focus);
   let monthStart = new Date(focus.getFullYear(), focus.getMonth(), 1);
@@ -96,7 +102,12 @@
   function loadEvents() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          return list.filter((ev) => ev && typeof ev === "object" && typeof ev.start === "string" && typeof ev.end === "string");
+        }
+      }
     } catch { /* ignore */ }
     const seeded = seedEvents();
     try { localStorage.setItem(STORE_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
@@ -105,7 +116,7 @@
   function loadCalendars() {
     try {
       const raw = localStorage.getItem(CAL_KEY);
-      if (raw) { const c = JSON.parse(raw); if (Array.isArray(c) && c.length) return c; }
+      if (raw) { const c = JSON.parse(raw); if (Array.isArray(c)) { const ok = c.filter((x) => x && typeof x === "object" && typeof x.id === "string" && typeof x.name === "string"); if (ok.length) return ok; } }
     } catch { /* ignore */ }
     const seeded = DEFAULT_CALENDARS.map((c) => ({ ...c }));
     try { localStorage.setItem(CAL_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
@@ -146,7 +157,10 @@
   function loadTasks() {
     try {
       const raw = localStorage.getItem(TASK_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) return list.filter((t) => t && typeof t === "object" && typeof t.id === "string");
+      }
     } catch { /* ignore */ }
     const seeded = ["Finish pitch deck", "Email professor about project", "Book a team meeting room"]
       .map((title) => ({ id: uid(), title }));
@@ -162,7 +176,7 @@
     return { start: toISO(d), end: toISO(addDays(d, days)), allDay: true };
   }
   function loadView() {
-    try { return localStorage.getItem(VIEW_KEY) === "month" ? "month" : "week"; } catch { return "week"; }
+    try { const v = localStorage.getItem(VIEW_KEY); return ["day", "week", "month", "year"].includes(v) ? v : "week"; } catch { return "week"; }
   }
   function saveEvents() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(events.filter(notDemo))); } catch { /* ignore */ }
@@ -185,27 +199,59 @@
       mk("Dinner", 5, 19, 0, 20, 30),
       mk("Hike", 6, 9, 0, 12, 0, "Trailhead"),
       { id: uid(), title: "Pitch deck due", ...allDaySpan(addDays(ws, 5)), cal: "cal-startup", location: "" },
+      mk("Meal prep", 0, 17, 0, 18, 0),
+      mk("Coffee with mentor", 1, 16, 0, 16, 45, "Campus café"),
+      mk("Study group", 2, 18, 0, 19, 30, "Library, 3rd floor"),
+      mk("Yoga", 4, 7, 30, 8, 30, "Campus rec center"),
+      mk("Investor call", 4, 11, 0, 11, 45, "Zoom"),
+      mk("Movie night", 6, 19, 30, 22, 0),
+      // next week
+      mk("Brunch with family", 7, 11, 0, 12, 30),
+      mk("Team standup", 8, 9, 30, 10, 0, "Zoom"),
+      mk("ENTR 222 lecture", 8, 13, 0, 14, 30, "Room 104"),
+      mk("Market research", 8, 16, 0, 17, 30),
+      mk("Gym", 9, 7, 0, 8, 0, "Campus rec center"),
+      mk("Project sync", 9, 11, 0, 12, 0),
+      mk("Study group", 9, 18, 0, 19, 30, "Library, 3rd floor"),
+      mk("Lunch with Priya", 10, 12, 0, 13, 0, "Campus café"),
+      mk("ENTR 222 midterm", 10, 13, 0, 14, 30, "Room 104"),
+      mk("Customer interview", 10, 15, 30, 16, 15, "Zoom"),
+      mk("Yoga", 11, 7, 30, 8, 30, "Campus rec center"),
+      mk("Pitch practice", 11, 10, 0, 11, 30),
+      mk("Office hours", 11, 15, 0, 16, 30),
+      mk("Team dinner", 12, 18, 30, 20, 30, "Luigi's"),
+      mk("Soccer game", 13, 10, 0, 12, 0, "North field"),
+      { id: uid(), title: "Demo day", ...allDaySpan(addDays(ws, 12)), cal: "cal-startup", location: "" },
     ];
   }
 
   // ---------- rendering ----------
+  const timeView = () => view === "day" || view === "week";
+  const visibleDays = () => ({ start: view === "day" ? startOfDay(focus) : weekStart, count: view === "day" ? 1 : 7 });
+
   function render() {
     updateTaskSchedules();
     if (typeof updateMeetWarnings === "function" && meetsReady) updateMeetWarnings();
     el.main.dataset.view = view;
-    el.viewLabel.textContent = view === "month" ? "Month" : "Week";
+    el.viewLabel.textContent = view[0].toUpperCase() + view.slice(1);
+    el.main.style.setProperty("--visible-days", visibleDays().count);
+    $("prevBtn").setAttribute("aria-label", `Previous ${view}`);
+    $("nextBtn").setAttribute("aria-label", `Next ${view}`);
     renderHeader();
     refreshMain();
     renderMini();
   }
   // Re-draw only the main area (used on resize, every minute, and after drags).
   function refreshMain() {
-    if (view === "month") renderMonth();
+    if (view === "year") renderYear();
+    else if (view === "month") renderMonth();
     else renderGrid();
   }
 
   function renderHeader() {
+    el.rangeTitle.classList.toggle("day-title", view === "day");
     el.logoDate.textContent = new Date().getDate();
+    if (view === "year") { el.rangeTitle.textContent = focus.getFullYear(); return; }
     if (view === "month") {
       el.rangeTitle.textContent = `${MONTHS[monthStart.getMonth()]} ${monthStart.getFullYear()}`;
       return;
@@ -217,20 +263,21 @@
     if (m1 === m2) title = `${MONTHS[m1]} ${y1}`;
     else if (y1 === y2) title = `${MONTHS[m1].slice(0, 3)} – ${MONTHS[m2].slice(0, 3)} ${y1}`;
     else title = `${MONTHS[m1].slice(0, 3)} ${y1} – ${MONTHS[m2].slice(0, 3)} ${y2}`;
-    el.rangeTitle.textContent = title;
+    el.rangeTitle.textContent = view === "day"
+      ? focus.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" }) : title;
 
     const today = new Date();
     const offset = -today.getTimezoneOffset() / 60;
     let html = `<div class="tz">GMT${offset >= 0 ? "+" : ""}${offset}</div>`;
-    for (let i = 0; i < 7; i++) {
-      const d = addDays(weekStart, i);
+    for (let i = 0; i < visibleDays().count; i++) {
+      const d = addDays(visibleDays().start, i);
       // The whole column header (name, number, all-day row) is the all-day drop zone.
       html += `<div class="day-head allday-zone${sameDay(d, today) ? " today" : ""}" data-day="${i}">
-        <div class="dname">${DAY_SHORT[i]}</div><div class="dnum">${d.getDate()}</div><div class="allday-list"></div></div>`;
+        <div class="dname">${DAY_SHORT[d.getDay()]}</div><button type="button" class="dnum" data-open-day="${dayKey(d)}" aria-label="Open ${dayKey(d)} in Day view">${d.getDate()}</button><div class="allday-list"></div></div>`;
     }
     el.weekHead.innerHTML = html;
     el.weekHead.querySelectorAll(".day-head").forEach((head, i) => {
-      const d = addDays(weekStart, i);
+      const d = addDays(visibleDays().start, i);
       const list = head.querySelector(".allday-list");
       eventsOnDay(d).filter(({ ev }) => ev.allDay).forEach(({ ev, s }) => list.appendChild(chipEl(ev, s, d)));
     });
@@ -252,8 +299,8 @@
     grid.appendChild(gutter);
 
     const today = new Date();
-    for (let i = 0; i < 7; i++) {
-      const day = addDays(weekStart, i);
+    for (let i = 0; i < visibleDays().count; i++) {
+      const day = addDays(visibleDays().start, i);
       const col = document.createElement("div");
       col.className = "day-col";
 
@@ -265,8 +312,8 @@
         .map((it) => ({
           ...it,
           dayStart,
-          top: Math.max(0, (it.s - dayStart) / 60000),            // minutes from midnight
-          bottom: Math.min(1440, (it.e - dayStart) / 60000),
+          top: it.s <= dayStart ? 0 : it.s.getHours() * 60 + it.s.getMinutes(),            // wall-clock minutes from midnight
+          bottom: it.e >= dayEnd ? 1440 : it.e.getHours() * 60 + it.e.getMinutes(),
         }))
         .sort((a, b) => a.top - b.top || b.bottom - a.bottom);
 
@@ -334,7 +381,7 @@
       div.querySelector(".etitle").prepend(checkboxEl(ev));
     }
     // Only the segment that holds the real end time gets a resize handle.
-    if (e - dayStart <= 86400000) {
+    if (e <= addDays(dayStart, 1)) {
       const h = document.createElement("div");
       h.className = "resize";
       div.appendChild(h);
@@ -366,14 +413,14 @@
     el.miniTitle.textContent = `${MONTHS[m]} ${y}`;
     const first = startOfWeek(new Date(y, m, 1));
     const today = new Date();
-    const weekEnd = addDays(weekStart, 7);
+    const weekEnd = addDays(visibleDays().start, visibleDays().count);
     let html = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<div class="dow">${d}</div>`).join("");
     for (let i = 0; i < 42; i++) {
       const d = addDays(first, i);
       const cls = [
         d.getMonth() !== m ? "other" : "",
         sameDay(d, today) ? "today"
-          : view === "week" && d >= weekStart && d < weekEnd ? "in-week"
+          : timeView() && d >= visibleDays().start && d < weekEnd ? "in-week"
           : view === "month" && sameDay(d, focus) ? "in-week" : "",
       ].join(" ");
       html += `<button class="${cls}" data-date="${dayKey(d)}">${d.getDate()}</button>`;
@@ -381,11 +428,102 @@
     el.miniGrid.innerHTML = html;
   }
 
+  function renderYear() {
+    const root = $("yearView"), year = focus.getFullYear(), today = new Date();
+    root.innerHTML = "";
+    for (let m = 0; m < 12; m++) {
+      const month = document.createElement("section");
+      month.className = "year-month";
+      const title = document.createElement("button");
+      title.className = "year-month-title";
+      title.textContent = MONTHS[m];
+      title.onclick = () => { goToDate(new Date(year, m, 1), false); setView("month"); };
+      month.appendChild(title);
+      const grid = document.createElement("div");
+      grid.className = "mini-grid";
+      grid.innerHTML = ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<div class="dow">${d}</div>`).join("");
+      const first = startOfWeek(new Date(year, m, 1));
+      for (let i = 0; i < 42; i++) {
+        const date = addDays(first, i), button = document.createElement("button");
+        button.textContent = date.getDate();
+        button.classList.toggle("other", date.getMonth() !== m);
+        button.classList.toggle("today", sameDay(date, today));
+        button.classList.toggle("has-events", eventsOnDay(date).length > 0);
+        button.setAttribute("aria-label", date.toLocaleDateString(undefined, { dateStyle: "full" }));
+        button.onclick = () => { goToDate(date, false); setView("day"); };
+        grid.appendChild(button);
+      }
+      month.appendChild(grid);
+      root.appendChild(month);
+    }
+  }
+
   // ---------- popover ----------
   const FINE_POINTER = !window.matchMedia("(pointer: coarse)").matches; // not a touch screen
   const CLOSE_BTN = `<div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button></div>`;
+
+  // One dictation session across the sidebar, quick-add and popover bars.
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let dictation = null;
+  function stopDictation(container = null) {
+    const session = dictation;
+    if (!session || (container && !container.contains(session.input))) return;
+    dictation = null;
+    session.button.classList.remove("listening");
+    session.button.setAttribute("aria-pressed", "false");
+    session.recognition.stop();
+  }
+  function bindDictation(form, input, report) {
+    const button = form.querySelector(".ai-mic");
+    if (!SpeechRecognition) return;
+    button.hidden = false;
+    button.addEventListener("click", () => {
+      if (dictation && dictation.button === button) { dictation.recognition.stop(); return; }
+      stopDictation();
+      if (input.readOnly || input.disabled) return;
+      const recognition = new SpeechRecognition();
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.lang = navigator.language || "en-US";
+      const base = input.value, prefix = base && !/\s$/.test(base) ? base + " " : base;
+      let finalText = "";
+      const session = { recognition, input, button };
+      dictation = session;
+      const resize = () => input.dispatchEvent(new Event("input", { bubbles: true }));
+      recognition.onresult = (e) => {
+        if (dictation !== session) return;
+        let interim = "";
+        finalText = "";
+        for (let i = 0; i < e.results.length; i++) {
+          if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+          else interim += e.results[i][0].transcript;
+        }
+        input.value = prefix + finalText + interim;
+        resize();
+      };
+      recognition.onerror = (e) => {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") report("Microphone access was blocked.");
+      };
+      recognition.onend = () => {
+        if (dictation !== session) return;
+        dictation = null;
+        button.classList.remove("listening");
+        button.setAttribute("aria-pressed", "false");
+        input.value = finalText ? prefix + finalText : base;
+        resize();
+      };
+      button.classList.add("listening");
+      button.setAttribute("aria-pressed", "true");
+      input.focus();
+      try { recognition.start(); } catch {
+        stopDictation();
+        report("Could not start dictation.");
+      }
+    });
+    form.addEventListener("submit", () => stopDictation(form));
+  }
 
   // The pill-shaped "describe it" input used in popovers. onSubmit(text) returns the API
   // reply; if Claude changed nothing (e.g. it asked a question) the reply is shown inline.
@@ -396,6 +534,7 @@
       <form class="ai-input-wrap pnew-form" autocomplete="off">
         <svg class="ai-spark" viewBox="0 0 24 24" width="20" height="20"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9z M19 14l.9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9z"/></svg>
         <textarea rows="1"></textarea>
+        <button type="button" class="ai-mic" aria-label="Dictate" title="Dictate (speak instead of typing)" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
         <button type="submit" class="ai-send" aria-label="Send">
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
         </button>
@@ -403,6 +542,7 @@
       <div class="ai-status pnew-status"></div>`;
     const form = wrap.querySelector("form"), input = wrap.querySelector("textarea");
     const status = wrap.querySelector(".pnew-status"), send = wrap.querySelector(".ai-send");
+    bindDictation(form, input, (message) => { status.textContent = message; status.classList.add("error"); });
     input.placeholder = placeholder;
     input.setAttribute("aria-label", placeholder);
     status.textContent = hint;
@@ -412,6 +552,7 @@
       input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
     });
     const submit = async () => {
+      stopDictation(form);
       const text = input.value.trim();
       if (!text || busy) return;
       busy = true;
@@ -455,6 +596,7 @@
     const s = parseISO(ev.start), e = parseISO(ev.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" style="background:${colorOf(ev)}" aria-label="Change calendar" title="Change calendar"></button></div>
         <div class="pinfo"><div class="ptitle"></div><div class="pwhen"></div></div></div>
@@ -529,9 +671,12 @@
     if (FINE_POINTER) bar.input.focus(); // don't pop the keyboard up on phones
   }
   function hidePopover() {
+    stopDictation(el.popover);
     // Don't leave focus in a hidden input, or keyboard shortcuts would think we're still typing.
-    if (el.popover.contains(document.activeElement)) document.activeElement.blur();
+    // Hide first: an inline edit saves on blur, and must not see the popover as still open (it would re-open it).
+    const focused = el.popover.contains(document.activeElement) ? document.activeElement : null;
     el.popover.hidden = true;
+    if (focused) focused.blur();
     delete el.popover.dataset.eventId;
     clearDraft();
   }
@@ -565,6 +710,7 @@
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
     if (!draft.cal || !calById(draft.cal)) draft.cal = defaultCalId();
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <form class="pnew-manual" autocomplete="off">
         <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" aria-label="Choose calendar" title="Choose calendar"></button></div>
@@ -677,8 +823,8 @@
         slot,
         eventId,
         now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
-        weekStart: dayKey(weekStart),
-        weekEnd: dayKey(addDays(weekStart, 6)),
+        weekStart: dayKey(visibleDays().start),
+        weekEnd: dayKey(addDays(visibleDays().start, visibleDays().count - 1)),
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -687,6 +833,7 @@
   }
 
   async function submitCommand(text) {
+    stopDictation(el.aiForm);
     const command = text.trim();
     if (!command) return;
     setBusy(true);
@@ -711,17 +858,20 @@
   const colAtX = (x) => {
     const cols = dayCols();
     let i = cols.findIndex((c) => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
-    if (i === -1) i = x < cols[0].getBoundingClientRect().left ? 0 : 6;
+    if (i === -1) i = x < cols[0].getBoundingClientRect().left ? 0 : cols.length - 1;
     return i;
   };
   const minuteAtY = (y) => (y - el.weekGrid.getBoundingClientRect().top) / hourPx() * 60;
   const snap = (m, fn = Math.round) => fn(m / SNAP) * SNAP;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const atMinute = (dayIdx, min) => new Date(addDays(weekStart, dayIdx).getTime() + min * 60000);
+  // Wall-clock minutes after local midnight of that day (Date rolls past 1440 into the next day), so DST days stay right.
+  const atMinute = (dayIdx, min) => { const d = addDays(visibleDays().start, dayIdx); d.setHours(0, min, 0, 0); return d; };
+  const atDayMinute = (day, min) => { const d = startOfDay(day); d.setHours(0, min, 0, 0); return d; };
 
   function setBlockTime(block, s, e) {
     const top = s.getHours() * 60 + s.getMinutes();
-    const mins = Math.max((e - s) / 60000, 15);
+    const endMin = sameDay(s, e) ? e.getHours() * 60 + e.getMinutes() : 1440; // wall-clock, clipped to this day
+    const mins = Math.max(endMin - top, 15);
     block.style.top = `calc(var(--hour) * ${top / 60})`;
     block.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
     block.classList.toggle("compact", mins < 45);
@@ -746,7 +896,8 @@
         ev, block: evBlock, x0: e.clientX, y0: e.clientY, moved: false,
         duration: en - s, newStart: s, newEnd: en,
         // where inside the event the pointer grabbed it (minutes from event start)
-        grab: pointerMin - (s - addDays(weekStart, dayIdx)) / 60000,
+        // (measured from the grabbed segment's own day: a continuation segment starts at 00:00)
+        grab: pointerMin - (sameDay(s, addDays(visibleDays().start, dayIdx)) ? s.getHours() * 60 + s.getMinutes() : 0),
       };
     } else {
       // First click on empty space while a popover is open just closes it (like Google).
@@ -793,8 +944,7 @@
 
     if (drag.mode === "move") {
       const dayIdx = colAtX(drag.px);
-      const durMin = drag.duration / 60000;
-      const startMin = clamp(snap(m - drag.grab), 0, Math.max(0, 1440 - Math.min(durMin, 1440)));
+      const startMin = clamp(snap(m - drag.grab), 0, 1440 - SNAP);
       drag.newStart = atMinute(dayIdx, startMin);
       drag.newEnd = new Date(drag.newStart.getTime() + drag.duration);
       const col = dayCols()[dayIdx];
@@ -807,7 +957,7 @@
       // The handle sits on the segment that holds the end time; resize within that day.
       const s = parseISO(drag.ev.start);
       const endDay = startOfDay(new Date(parseISO(drag.ev.end).getTime() - 1));
-      let end = new Date(endDay.getTime() + clamp(snap(m), 0, 1440) * 60000);
+      let end = atDayMinute(endDay, clamp(snap(m), 0, 1440));
       if (end - s < SNAP * 60000) end = new Date(s.getTime() + SNAP * 60000);
       drag.newEnd = end;
       setBlockTime(drag.block, s > endDay ? s : endDay, end);
@@ -867,6 +1017,7 @@
 
   function applyActions(actions, taskActions = [], calActions = []) {
     if (!actions.length && !taskActions.length && !calActions.length) return [];
+    const savedRedo = redoStack;
     pushUndo();
     const changed = [];
     // Calendars first, so events in this same reply can refer to a newly created calendar by name.
@@ -916,10 +1067,23 @@
         changed.push(ev);
       } else if (a.type === "update") {
         const ev = events.find((x) => x.id === a.id);
-        if (ev) { Object.assign(ev, fields); changed.push(ev); }
+        if (ev) {
+          Object.assign(ev, fields);
+          // A task placed on the calendar shares its title with the task (and its other entries).
+          if (ev.taskId && ev.title && ev.title.trim()) renameTask(ev.taskId, ev.title);
+          changed.push(ev);
+        }
       } else if (a.type === "delete") {
         const i = events.findIndex((x) => x.id === a.id);
-        if (i !== -1) { changed.push(events[i]); events.splice(i, 1); }
+        if (i !== -1) {
+          const gone = events[i];
+          changed.push(gone);
+          // Like deleteEvent: deleting a scheduled task removes the task and all of its entries.
+          if (gone.taskId) {
+            events = events.filter((x) => x.taskId !== gone.taskId);
+            tasks = tasks.filter((t) => t.id !== gone.taskId);
+          } else events.splice(i, 1);
+        }
       }
     }
     for (const t of taskActions) {
@@ -935,6 +1099,8 @@
         if (task) { changed.push(task); setTaskDone(task.id, true, task.title); }
       }
     }
+    // Every action missed (unknown id, blank name…): nothing changed, so don't keep a no-op undo step.
+    if (!changed.length) { undoStack.pop(); redoStack = savedRedo; return changed; }
     saveCalendars();
     saveEvents();
     saveTasks();
@@ -945,8 +1111,9 @@
     const target = actions.find((a) => a.type !== "delete");
     if (target) {
       const d = parseISO(target.start);
-      const visible = view === "week"
-        ? d >= weekStart && d < addDays(weekStart, 7)
+      const visible = timeView()
+        ? d >= visibleDays().start && d < addDays(visibleDays().start, visibleDays().count)
+        : view === "year" ? d.getFullYear() === focus.getFullYear()
         : d.getMonth() === monthStart.getMonth() && d.getFullYear() === monthStart.getFullYear();
       if (!visible) goToDate(d, false);
     }
@@ -968,10 +1135,7 @@
     const o = JSON.parse(snap);
     events = o.events;
     tasks = o.tasks;
-    if (o.calendars) {
-      const shown = new Map(calendars.map((c) => [c.id, c.visible]));
-      calendars = o.calendars.map((c) => (shown.has(c.id) ? { ...c, visible: shown.get(c.id) } : c));
-    }
+    if (o.calendars) calendars = o.calendars;
     saveCalendars();
     saveEvents();
     saveTasks();
@@ -1109,6 +1273,7 @@
   function showDayPopover(day, anchor) {
     clearDraft();
     const p = el.popover;
+    stopDictation(el.popover);
     p.innerHTML = `
       <div class="ptop"><button class="icon-btn" aria-label="Close" data-close>
         <svg viewBox="0 0 24 24" width="20" height="20"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
@@ -1173,13 +1338,13 @@
     suppressClick = true;
     setTimeout(() => (suppressClick = false), 0);
     if (d.mode === "dismiss") return;
-    if (cancelled) { renderMonth(); return; }
+    if (cancelled) { render(); return; }
 
     const date = parseISO(d.cell.dataset.date);
     if (d.mode === "mdate") { view = "week"; saveViewPref(); goToDate(date); return; }
     if (d.mode === "mmore") { showDayPopover(date, d.anchor); return; }
     if (d.mode === "mcreate") {
-      draft = { start: toISO(new Date(date.getTime() + 9 * 3600000)), end: toISO(new Date(date.getTime() + 10 * 3600000)), dayOnly: true };
+      draft = { start: toISO(atDayMinute(date, 540)), end: toISO(atDayMinute(date, 600)), dayOnly: true };
       renderMonth();
       showCreatePopover();
       return;
@@ -1188,13 +1353,13 @@
     if (!d.moved) { showPopover(d.ev, d.chip); return; }
     const target = d.over ? parseISO(d.over.dataset.date) : parseISO(d.from);
     const shift = Math.round((target - parseISO(d.from)) / 86400000);
-    if (!shift) { renderMonth(); return; }
+    if (!shift) { render(); return; }
     pushUndo();
     d.ev.start = toISO(addDays(parseISO(d.ev.start), shift));
     d.ev.end = toISO(addDays(parseISO(d.ev.end), shift));
     saveEvents();
     flashIds = new Set([d.ev.id]);
-    renderMonth();
+    render();
     flashIds = new Set();
     setStatus(`Moved “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
   }
@@ -1474,10 +1639,10 @@
     const col = n && n.closest(".day-col");
     const cell = n && n.closest(".mcell");
     if (zone) {
-      const date = view === "week" ? addDays(weekStart, Number(zone.dataset.day)) : parseISO(zone.closest(".mcell").dataset.date);
+      const date = timeView() ? addDays(visibleDays().start, Number(zone.dataset.day)) : parseISO(zone.closest(".mcell").dataset.date);
       zone.classList.add("zone-hot");
       t.target = { allDay: true, date };
-    } else if (view === "week" && col) {
+    } else if (timeView() && col) {
       const dayIdx = Number(col.dataset.day);
       const startMin = clamp(snap(minuteAtY(t.y), Math.floor), 0, 1440 - 60);
       const start = atMinute(dayIdx, startMin);
@@ -1494,7 +1659,7 @@
     } else if (view === "month" && cell) {
       cell.classList.add("drop");
       const d = parseISO(cell.dataset.date);
-      t.target = { allDay: false, start: new Date(d.getTime() + 9 * 3600000) };
+      t.target = { allDay: false, start: atDayMinute(d, 540) };
     }
     const where = t.ghost.querySelector(".tg-where");
     const verb = events.some((x) => x.taskId === t.task.id) ? "Move to " : "";
@@ -1507,7 +1672,7 @@
   // Scroll the week grid while dragging near its top or bottom edge.
   function autoScroll() {
     if (!tdrag || !tdrag.moved) return;
-    if (view === "week") {
+    if (timeView()) {
       const r = el.weekBody.getBoundingClientRect();
       // Only over the grid itself (not while passing over the header or sidebar).
       const over = tdrag.x > r.left && tdrag.x < r.right && tdrag.y > r.top - 4 && tdrag.y < r.bottom + 40;
@@ -1570,6 +1735,13 @@
 
   // ----- all-day events in the week header: click for details, drag to another day -----
   let hdrag = null;
+  el.weekHead.addEventListener("click", (e) => {
+    const button = e.target.closest("[data-open-day]");
+    if (!button || suppressClick || wtm.active) return;
+    goToDate(parseISO(button.dataset.openDay), false);
+    setView("day");
+    render();
+  });
   el.weekHead.addEventListener("pointerdown", (e) => {
     if (e.button !== 0 || drag || tdrag || e.target.closest(".echeck")) return;
     const chip = e.target.closest(".mchip");
@@ -1602,7 +1774,7 @@
     suppressClick = true;
     setTimeout(() => (suppressClick = false), 0);
     if (!d.moved) { if (!cancelled) showPopover(d.ev, d.chip); return; }
-    const target = d.over ? addDays(weekStart, Number(d.over.dataset.day)) : parseISO(d.from);
+    const target = d.over ? addDays(visibleDays().start, Number(d.over.dataset.day)) : parseISO(d.from);
     const shift = Math.round((startOfDay(target) - parseISO(d.from)) / 86400000);
     if (cancelled || !shift) { renderHeader(); return; }
     pushUndo();
@@ -1652,6 +1824,16 @@
     const c = calById(id);
     if (!c) return;
     c.visible = c.visible === false;
+    // Sidebar show/hide isn't part of undo: carry the new value into every saved snapshot.
+    const patch = (snap) => {
+      try {
+        const o = JSON.parse(snap);
+        (o.calendars || []).forEach((x) => { if (x.id === id) x.visible = c.visible; });
+        return JSON.stringify(o);
+      } catch { return snap; }
+    };
+    undoStack = undoStack.map(patch);
+    redoStack = redoStack.map(patch);
     saveCalendars();
     renderCalendars();
     hidePopover();
@@ -1664,6 +1846,7 @@
     const p = el.popover;
     const isNew = !cal;
     let color = cal ? cal.color : PALETTE.find((k) => !calendars.some((c) => c.color === k)) || "peacock";
+    stopDictation(el.popover);
     p.innerHTML = `${CLOSE_BTN}
       <div class="cal-editor">
         <div class="ce-title">${isNew ? "New calendar" : "Edit calendar"}</div>
@@ -1817,6 +2000,8 @@
     if (doRender) render();
   }
   function step(dir) {
+    if (view === "day") return goToDate(addDays(focus, dir));
+    if (view === "year") return goToDate(new Date(focus.getFullYear() + dir, focus.getMonth(), 1));
     if (view === "week") return goToDate(addDays(weekStart, 7 * dir));
     const m = new Date(monthStart.getFullYear(), monthStart.getMonth() + dir, 1);
     const today = new Date();
@@ -1827,13 +2012,14 @@
     try { localStorage.setItem(VIEW_KEY, view); } catch { /* ignore */ }
   }
   function setView(v) {
-    if (v === view) return;
+    if (!["day", "week", "month", "year"].includes(v) || v === view) return;
     if (wtm.active && v !== "week") return; // Whentomeet paints over the week view
+    stopDictation();
     hidePopover();
     view = v;
     saveViewPref();
     render();
-    if (view === "week") el.weekBody.scrollTop = hourPx() * 7.5;
+    if (timeView()) el.weekBody.scrollTop = hourPx() * 7.5;
   }
 
   // ---------- modes: Calendar / Action Timeline ----------
@@ -1844,6 +2030,7 @@
   const modeEl = { tabs: [...document.querySelectorAll(".mode-tab")] };
 
   function setMode(m) {
+    stopDictation();
     mode = m;
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
@@ -1867,7 +2054,7 @@
       render();
       updateHubSync();
       // If the week view was hidden when the page loaded, it never got its usual starting scroll position.
-      if (view === "week" && el.weekBody.scrollTop === 0) el.weekBody.scrollTop = hourPx() * 7.5;
+      if (timeView() && el.weekBody.scrollTop === 0) el.weekBody.scrollTop = hourPx() * 7.5;
     }
   }
   // One click switches mode; ← / → move between the tabs from the keyboard.
@@ -2555,6 +2742,7 @@
     for (const f of picked) {
       if (f.size > 200 * 1024) { s.messages.push({ role: "error", text: `“${f.name}” is too big (text files up to 200 KB).`, at: Date.now() }); continue; }
       const text = await f.text().catch(() => null);
+      if (sessions[id] !== s) return;
       if (text == null || text.includes("\u0000")) { s.messages.push({ role: "error", text: `“${f.name}” isn't a text file.`, at: Date.now() }); continue; }
       upsertFile(id, f.name, text, "user");
       s.messages.push({ role: "note", text: `Attached ${f.name}`, at: Date.now() });
@@ -2825,8 +3013,10 @@
     return m.days.includes(date.getDay()) ? String(date.getDay()) : null;
   }
   function slotTimes(m, date, i) {
-    const s = new Date(startOfDay(date).getTime() + (m.start * 60 + i * SLOT_MIN) * 60000);
-    return [s, new Date(s.getTime() + SLOT_MIN * 60000)];
+    const s = startOfDay(date), e = startOfDay(date);
+    s.setHours(m.start, i * SLOT_MIN, 0, 0);
+    e.setHours(m.start, (i + 1) * SLOT_MIN, 0, 0);
+    return [s, e];
   }
   const busyAt = (s, e) => events.some((ev) => !ev.allDay && isVisible(ev) && parseISO(ev.start) < e && parseISO(ev.end) > s);
   // Your availability: what you painted, otherwise free unless an existing event is there.
@@ -3156,6 +3346,13 @@
       if (painting.add) w.dates.add(b.dataset.date); else w.dates.delete(b.dataset.date);
       b.classList.toggle("sel", painting.add);
     };
+    grid.addEventListener("click", (e) => {
+      if (e.detail !== 0) return;
+      const b = e.target.closest("button[data-date]");
+      if (!b || b.disabled) return;
+      if (w.dates.has(b.dataset.date)) w.dates.delete(b.dataset.date); else w.dates.add(b.dataset.date);
+      renderWizard();
+    });
     grid.addEventListener("pointerdown", (e) => {
       const b = e.target.closest("button[data-date]");
       if (!b || b.disabled) return;
@@ -3221,6 +3418,7 @@
 
   // ----- Whentomeet mode -----
   function enterMeet(id) {
+    stopDictation();
     const m = meetById(id);
     if (!m) return;
     if (wtm.wizard) { wtm.wizard = null; renderWizard(); }
@@ -3258,6 +3456,8 @@
 
   // The Whentomeet grid: one big block per 30 minutes for each day of the week shown, under the
   // normal day headers. Your events appear as month-view-style lines in the block where they start.
+  const wallMinutes = (d, base) => (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(base.getFullYear(), base.getMonth(), base.getDate())) / 60000 + d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + d.getMilliseconds() / 60000;
+
   function renderMeetGrid() {
     const m = activeMeet();
     wz.grid.hidden = !m;
@@ -3304,7 +3504,7 @@
           .sort((a, b) => parseISO(a.start) - parseISO(b.start) || parseISO(b.end) - parseISO(a.end))
           .forEach((ev) => {
             const st = parseISO(ev.start), en = parseISO(ev.end);
-            const i = clamp(Math.floor((st - winStart) / (SLOT_MIN * 60000)), 0, n - 1);
+            const i = clamp(Math.floor((wallMinutes(st, date) - m.start * 60) / SLOT_MIN), 0, n - 1);
             (lines[i] = lines[i] || []).push(ev);
             let lane = laneEnds.findIndex((t) => t <= st);
             if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
@@ -3379,7 +3579,6 @@
   // Draw each event's bar from its start to its end, using the real block positions (blocks have gaps).
   const BAR_X0 = 4, BAR_STEP = 8, BAR_W = 4;
   function placeEventBars(g, n) {
-    const slotMs = SLOT_MIN * 60000;
     g.querySelectorAll(".mg-bars").forEach((layer) => {
       const col = layer.style.gridColumn;
       const cells = [...g.querySelectorAll(".wtm-cell")].filter((c) => c.style.gridColumn === col)
@@ -3390,7 +3589,7 @@
       // Position (in px) of a moment within the window. An end time that falls exactly on a block
       // boundary stops at the bottom of the block before it (not across the gap into the next block).
       const yAt = (t, isEnd = false) => {
-        const pos = (t - layer._win) / slotMs;
+        const pos = (wallMinutes(t, layer._win) - wallMinutes(layer._win, layer._win)) / SLOT_MIN;
         if (pos <= 0) return rects[0].top;
         if (pos >= n) return rects[n - 1].top + rects[n - 1].h;
         if (isEnd && Number.isInteger(pos)) return rects[pos - 1].top + rects[pos - 1].h;
@@ -3407,7 +3606,7 @@
         bar.style.cssText = `left:${x}px;top:${y1}px;height:${y2 - y1}px;width:${BAR_W}px;--c:${color}`;
         bar.title = `${b.ev.title || "(No title)"} · ${fmtRange(b.st, b.en)}`;
         layer.appendChild(bar);
-        labels.push({ y: y2, x, color, text: fmtTime(b.en), cut: (b.en - layer._win) / slotMs > n });
+        labels.push({ y: y2, x, color, text: fmtTime(b.en), cut: (wallMinutes(b.en, layer._win) - wallMinutes(layer._win, layer._win)) / SLOT_MIN > n });
       }
       // End-time pills next to the bar ends. Events ending at the same moment share one pill (a dot per
       // event); pills that would still overlap are nudged apart.
@@ -3505,6 +3704,7 @@
     p.hidden = !m;
     if (!m) return;
     const people = 1 + m.members.length;
+    stopDictation(el.popover);
     p.innerHTML = `
       <div class="wtm-top">
         <button type="button" class="wtm-block" title="Back to the normal calendar">${MEET_ICON}<span class="wtm-pt"><b></b><small></small></span></button>
@@ -4222,16 +4422,27 @@
       f.cal.value = calById(it.cal) ? it.cal : defaultCalId();
       f.location.value = it.location || "";
     }
+    let dateValue = f.date.value, allDayValue = f.allDay.checked, fromValue = f.from.value, toValue = f.to.value;
     const apply = () => {
       it.title = f.title.value.trim();
       if (it.type === "event" && f.date.value) {
-        if (f.allDay.checked) Object.assign(it, allDaySpan(parseISO(`${f.date.value}T00:00`)));
-        else {
+        const dateChanged = f.date.value !== dateValue;
+        const timingChanged = f.allDay.checked !== allDayValue || f.from.value !== fromValue || f.to.value !== toValue;
+        if (dateChanged && !timingChanged) {
+          const oldStart = parseISO(it.start), oldEnd = parseISO(it.end);
+          const days = Math.round((Date.UTC(oldEnd.getFullYear(), oldEnd.getMonth(), oldEnd.getDate()) - Date.UTC(oldStart.getFullYear(), oldStart.getMonth(), oldStart.getDate())) / 86400000);
+          const st = parseISO(`${f.date.value}T00:00`);
+          if (!it.allDay) st.setHours(oldStart.getHours(), oldStart.getMinutes(), oldStart.getSeconds(), oldStart.getMilliseconds());
+          const en = it.allDay ? addDays(st, days) : new Date(st.getTime() + (oldEnd - oldStart));
+          Object.assign(it, { start: toISO(st), end: toISO(en) });
+        } else if (timingChanged && f.allDay.checked) Object.assign(it, allDaySpan(parseISO(`${f.date.value}T00:00`)));
+        else if (timingChanged) {
           const st = parseISO(`${f.date.value}T${f.from.value || "09:00"}`);
           let en = parseISO(`${f.date.value}T${f.to.value || "10:00"}`);
           if (en <= st) en = new Date(st.getTime() + 3600000);
           Object.assign(it, { start: toISO(st), end: toISO(en), allDay: false });
         }
+        dateValue = f.date.value; allDayValue = f.allDay.checked; fromValue = f.from.value; toValue = f.to.value;
         it.cal = f.cal.value;
         it.location = f.location.value.trim();
       }
@@ -4387,7 +4598,7 @@
     setMode("hub");
     hub.views = [];
     hub.pages.all = 0;
-    for (const m of fresh) hub.selected.add(m.id);
+    hub.selected = new Set(fresh.map((m) => m.id));
     saveHub();
     renderHub();
     const g = hubEl.cols.querySelector(".hub-grid");
@@ -4402,8 +4613,7 @@
     const msgs = [...hub.selected].map(msgById).filter(Boolean);
     const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
     hubConstruct(msgs, srcs.length > 2 ? `${srcs.length} sources` : srcs.join(", ")).then((ok) => {
-      if (ok) { msgs.forEach((m) => hub.seen.add(m.id)); saveHub(); updateHubSync(); } // no longer "new"
-      hub.selected.clear();
+      if (ok) { msgs.forEach((m) => { hub.seen.add(m.id); hub.selected.delete(m.id); }); saveHub(); updateHubSync(); } // no longer "new"
       renderHubSources();
       renderHubCols();
       renderConstructTools();
@@ -4421,6 +4631,674 @@
   hubEl.status.addEventListener("click", (e) => {
     if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
   });
+
+  // ---------- Booking pages ----------
+  // "Book time with me" pages, like Calendly or Google's appointment schedules: a length, weekdays and
+  // hours. The link is this app's own address + #book/<id>; opening it shows the page people book from,
+  // and a booking goes straight into your calendar. Open times skip anything on any of your calendars.
+  const BOOK_KEY = "nl-calendar-booking-v1";
+  const BOOK_DURATIONS = [15, 30, 45, 60];
+  const BOOK_AHEAD = [[7, "1 week"], [14, "2 weeks"], [28, "4 weeks"]];
+  const BOOK_NOTICE = [[0, "None"], [60, "1 hour"], [240, "4 hours"], [1440, "1 day"]];
+  const BOOK_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M16.53 11.06 15.47 10l-4.88 4.88-2.12-2.12-1.06 1.06L10.59 17l5.94-5.94zM19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>`;
+  const BOOK_CLOCK = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>`;
+  const BOOK_BACK = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>`;
+  const BOOK_DONE = `<svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>`;
+  const BOOK_PREV = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>`;
+  const BOOK_NEXT = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>`;
+  const BOOK_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  // Fill in anything missing or out of range (older or hand-edited saves).
+  function normBookingPage(p) {
+    const pick = (v, list, def) => (list.includes(v) ? v : def);
+    const days = Array.isArray(p.days) ? [...new Set(p.days.map(Number).filter((d) => d >= 0 && d <= 6))].sort((a, b) => a - b) : [];
+    let start = Math.max(0, Math.min(23, Math.floor(Number(p.start)) || 0));
+    let end = Math.max(1, Math.min(24, Math.floor(Number(p.end)) || 0));
+    if (end <= start) { start = 9; end = 17; }
+    return {
+      id: String(p.id || "b" + uid()), name: String(p.name || "Booking page"),
+      duration: pick(Number(p.duration), BOOK_DURATIONS, 30),
+      days: days.length ? days : [1, 2, 3, 4, 5], start, end,
+      ahead: pick(Number(p.ahead), BOOK_AHEAD.map(([v]) => v), 14),
+      notice: pick(Number(p.notice), BOOK_NOTICE.map(([v]) => v), 240),
+      cal: String(p.cal || defaultCalId()), location: String(p.location || ""), createdAt: p.createdAt || Date.now(),
+    };
+  }
+  function loadBookingPages() {
+    let raw = null;
+    try { raw = localStorage.getItem(BOOK_KEY); } catch { /* storage blocked: use the example */ }
+    if (raw !== null) {
+      try { const list = JSON.parse(raw); if (Array.isArray(list)) return list.filter((p) => p && typeof p === "object").map(normBookingPage); } catch { /* ignore */ }
+      return [];
+    }
+    // First visit: one example page.
+    const seeded = [normBookingPage({
+      id: "b" + uid(), name: "Coffee chat", duration: 30, days: [1, 2, 3, 4, 5], start: 9, end: 17,
+      ahead: 14, notice: 240, cal: defaultCalId(), location: "Zoom",
+    })];
+    try { localStorage.setItem(BOOK_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
+    return seeded;
+  }
+  let bookingPages = loadBookingPages();
+  const saveBookingPages = () => { try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookingPages)); } catch { /* storage full */ } };
+  const bookingById = (id) => bookingPages.find((p) => p.id === id);
+
+  // "Mon–Fri", "Mon, Wed, Fri", "Sun, Sat", "Every day". Runs of 3+ days read as a range.
+  function bookingDaysText(days) {
+    const list = [...new Set(days)].sort((a, b) => a - b);
+    if (list.length === 7) return "Every day";
+    const runs = [];
+    for (const d of list) {
+      const r = runs[runs.length - 1];
+      if (r && d === r[1] + 1) r[1] = d; else runs.push([d, d]);
+    }
+    return runs.map(([a, b]) => (b - a >= 2 ? `${DAY_NAMES[a]}–${DAY_NAMES[b]}` : b > a ? `${DAY_NAMES[a]}, ${DAY_NAMES[b]}` : DAY_NAMES[a])).join(", ");
+  }
+  const bookingSummary = (p) => `${bookingDaysText(p.days)} · ${hourLabel(p.start)} – ${hourLabel(p.end)}`;
+  const bookingLink = (p) => {
+    const base = location.origin && location.origin !== "null" ? location.origin + location.pathname : location.href.split("#")[0];
+    return `${base}#book/${encodeURIComponent(p.id)}`;
+  };
+
+  // Every timed event blocks its time, hidden calendars included (you're busy either way). All-day ones don't.
+  const bookingBusy = () => events.filter((ev) => notDemo(ev) && !ev.allDay && ev.start && ev.end)
+    .map((ev) => [parseISO(ev.start), parseISO(ev.end)]);
+  // Open start times on one day: every <duration> minutes from the window start, ending by the window end,
+  // at least <notice> minutes from now, no later than <ahead> days from today, on the chosen weekdays, and
+  // not overlapping anything in busy ([[start, end], …]). Times are built on the wall clock (midnight, then
+  // setHours) so a daylight-saving day still runs 9:00, 9:30, …
+  function bookingSlotsOn(page, day, now, busy) {
+    const d0 = startOfDay(day), today = startOfDay(now);
+    if (!page.days.includes(d0.getDay()) || d0 < today || d0 > addDays(today, page.ahead)) return [];
+    const earliest = now.getTime() + page.notice * 60000;
+    const out = [];
+    for (let t = page.start * 60; t + page.duration <= page.end * 60; t += page.duration) {
+      const s = startOfDay(d0);
+      s.setHours(Math.floor(t / 60), t % 60, 0, 0);
+      if (s.getHours() !== Math.floor(t / 60) || s.getMinutes() !== t % 60) continue; // skipped by a DST jump
+      const e = startOfDay(d0);
+      e.setHours(Math.floor((t + page.duration) / 60), (t + page.duration) % 60, 0, 0);
+      if (s.getTime() < earliest) continue;
+      if (busy.some(([bs, be]) => bs < e && be > s)) continue;
+      out.push({ start: s, end: e });
+    }
+    return out;
+  }
+  // The first day (from today) with an open time, or null.
+  function firstBookingDay(page, now, busy) {
+    const today = startOfDay(now);
+    for (let i = 0; i <= page.ahead; i++) {
+      const d = addDays(today, i);
+      if (bookingSlotsOn(page, d, now, busy).length) return d;
+    }
+    return null;
+  }
+
+  const bkEl = {
+    list: $("bkList"), items: $("bkItems"), empty: $("bkEmpty"), add: $("bkAdd"),
+    guest: $("bkGuest"), wrap: $("bkWrap"), close: $("bkClose"), copy: $("bkCopy"),
+  };
+  // The guest view (what people see when they open the link). step: "pick" → "form" → "done".
+  const bkView = { open: false, pageId: null, month: null, day: null, slot: null, step: "pick", booked: null,
+    form: null, notice: "", pushed: false, inerted: [], returnTo: null };
+
+  // ----- sidebar list -----
+  async function copyBookingLink(p, btn) {
+    try { await navigator.clipboard.writeText(bookingLink(p)); } catch { /* no clipboard access: nothing else to do */ }
+    clearTimeout(btn._bkTimer);
+    btn.textContent = "Link copied";
+    btn.classList.add("done");
+    btn._bkTimer = setTimeout(() => { btn.textContent = "Copy link"; btn.classList.remove("done"); }, 1800);
+  }
+  function renderBookingList() {
+    bkEl.items.innerHTML = "";
+    bkEl.empty.hidden = bookingPages.length > 0;
+    for (const p of bookingPages) {
+      const li = document.createElement("li");
+      li.className = "bk-li";
+      li.dataset.id = p.id;
+      li.innerHTML = `<div class="bk-item">${BOOK_ICON}<span class="wtm-pt"><b></b><small></small></span>
+          <button type="button" class="icon-btn small bk-edit">${PENCIL}</button></div>
+        <div class="bk-acts"><button type="button" class="bk-act" data-act="copy">Copy link</button>
+          <button type="button" class="bk-act" data-act="preview">Preview</button></div>`;
+      li.querySelector("b").textContent = `${p.name} · ${p.duration} min`;
+      li.querySelector("small").textContent = bookingSummary(p);
+      const edit = li.querySelector(".bk-edit");
+      edit.setAttribute("aria-label", `Edit ${p.name}`);
+      edit.title = "Edit booking page";
+      li.querySelector('[data-act="copy"]').title = "Copy the link people book from";
+      li.querySelector('[data-act="preview"]').title = "See the page people book from";
+      bkEl.items.appendChild(li);
+    }
+  }
+  bkEl.add.addEventListener("click", (e) => { e.stopPropagation(); showBookingEditor(null, bkEl.add); });
+  bkEl.items.addEventListener("click", (e) => {
+    const li = e.target.closest(".bk-li");
+    const b = e.target.closest("button");
+    if (!li || !b) return;
+    e.stopPropagation();
+    const p = bookingById(li.dataset.id);
+    if (!p) return;
+    if (b.classList.contains("bk-edit")) showBookingEditor(p, li);
+    else if (b.dataset.act === "copy") copyBookingLink(p, b);
+    else if (b.dataset.act === "preview") previewBookingPage(p, b);
+  });
+
+  // ----- create / edit (popover, like the calendar editor) -----
+  function showBookingEditor(page, anchor) {
+    clearDraft();
+    const p = el.popover;
+    const isNew = !page;
+    const f = page ? { ...page, days: [...page.days] }
+      : { name: "", duration: 30, days: [1, 2, 3, 4, 5], start: 9, end: 17, ahead: 14, notice: 240, cal: defaultCalId(), location: "" };
+    if (!calById(f.cal)) f.cal = defaultCalId();
+    p.innerHTML = `${CLOSE_BTN}
+      <div class="cal-editor bk-editor">
+        <div class="ce-title">${isNew ? "New booking page" : "Edit booking page"}</div>
+        <input class="ce-name" type="text" maxlength="80" placeholder="Name, e.g. Coffee chat" aria-label="Booking page name">
+        <div class="bk-field"><span class="bk-label" id="bkeDurL">Duration</span>
+          <div class="bk-seg" role="radiogroup" aria-labelledby="bkeDurL"></div></div>
+        <div class="bk-field"><span class="bk-label" id="bkeDaysL">Days</span>
+          <div class="bk-days" role="group" aria-labelledby="bkeDaysL"></div></div>
+        <div class="bk-two">
+          <label class="bk-field"><span class="bk-label">Available from</span><select class="bk-sel bk-from"></select></label>
+          <label class="bk-field"><span class="bk-label">Until</span><select class="bk-sel bk-until"></select></label>
+        </div>
+        <div class="bk-two">
+          <label class="bk-field"><span class="bk-label">Book up to</span><select class="bk-sel bk-ahead"></select></label>
+          <label class="bk-field"><span class="bk-label">Minimum notice</span><select class="bk-sel bk-min-notice"></select></label>
+        </div>
+        <div class="bk-field"><span class="bk-label" id="bkeCalL">Add bookings to</span>
+          <button type="button" class="bk-calbtn" aria-haspopup="menu" aria-describedby="bkeCalL"><span class="bk-dot"></span><span class="bk-calname"></span>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg></button></div>
+        <label class="bk-field"><span class="bk-label">Location (optional)</span>
+          <input class="bk-input bk-loc" type="text" maxlength="200" placeholder="e.g. Zoom, Campus café"></label>
+        <div class="ce-error" aria-live="polite"></div>
+        <div class="ce-actions">
+          ${isNew ? "" : `<button type="button" class="ce-delete">Delete</button>`}
+          <span class="ce-spacer"></span>
+          <button type="button" class="ce-cancel">Cancel</button>
+          <button type="button" class="ce-save">${isNew ? "Create" : "Save"}</button>
+        </div>
+      </div>`;
+    delete p.dataset.eventId;
+    const q = (s) => p.querySelector(s);
+    const name = q(".ce-name"), loc = q(".bk-loc"), err = q(".ce-error");
+    name.value = f.name;
+    loc.value = f.location;
+
+    const seg = q(".bk-seg");
+    for (const m of BOOK_DURATIONS) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.textContent = `${m} min`;
+      b.addEventListener("click", (e) => { e.stopPropagation(); f.duration = m; paintSeg(); });
+      seg.appendChild(b);
+    }
+    const paintSeg = () => [...seg.children].forEach((b, i) => b.setAttribute("aria-checked", String(BOOK_DURATIONS[i] === f.duration)));
+    paintSeg();
+
+    const days = q(".bk-days");
+    DAY_NAMES.forEach((n, d) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = n;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        f.days = f.days.includes(d) ? f.days.filter((x) => x !== d) : [...f.days, d].sort((a, c) => a - c);
+        paintDays();
+        err.textContent = "";
+      });
+      days.appendChild(b);
+    });
+    const paintDays = () => [...days.children].forEach((b, d) => b.setAttribute("aria-pressed", String(f.days.includes(d))));
+    paintDays();
+
+    const from = q(".bk-from"), until = q(".bk-until");
+    for (let h = 0; h <= 23; h++) from.add(new Option(hourLabel(h), h));
+    for (let h = 1; h <= 24; h++) until.add(new Option(h === 24 ? "12 AM (midnight)" : hourLabel(h), h));
+    const paintHours = () => { from.value = f.start; until.value = f.end; };
+    paintHours();
+    from.addEventListener("change", () => { f.start = Number(from.value); if (f.end <= f.start) f.end = Math.min(24, f.start + 1); paintHours(); });
+    until.addEventListener("change", () => { f.end = Number(until.value); if (f.end <= f.start) f.start = Math.max(0, f.end - 1); paintHours(); });
+    const ahead = q(".bk-ahead"), notice = q(".bk-min-notice");
+    for (const [v, label] of BOOK_AHEAD) ahead.add(new Option(label, v));
+    for (const [v, label] of BOOK_NOTICE) notice.add(new Option(label, v));
+    ahead.value = f.ahead;
+    notice.value = f.notice;
+    ahead.addEventListener("change", () => { f.ahead = Number(ahead.value); });
+    notice.addEventListener("change", () => { f.notice = Number(notice.value); });
+
+    const calBtn = q(".bk-calbtn");
+    const paintCal = () => {
+      const c = calById(f.cal) || calById(defaultCalId());
+      q(".bk-dot").style.background = COLORS[c.color] || COLORS.peacock;
+      q(".bk-calname").textContent = c.name + (c.visible === false ? " (hidden)" : "");
+    };
+    paintCal();
+    calBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCalMenu(f.cal, calBtn, (id) => { f.cal = id; p.querySelector(".cal-menu")?.remove(); paintCal(); calBtn.focus(); }, { allowNew: false });
+    });
+
+    const save = () => {
+      const val = name.value.trim();
+      if (!val) { err.textContent = "Give the booking page a name."; name.focus(); return; }
+      if (!f.days.length) { err.textContent = "Pick at least one day."; return; }
+      if ((f.end - f.start) * 60 < f.duration) { err.textContent = "The hours are shorter than one meeting."; return; }
+      const fields = { name: val, duration: f.duration, days: [...f.days], start: f.start, end: f.end,
+        ahead: f.ahead, notice: f.notice, cal: f.cal, location: loc.value.trim() };
+      if (isNew) bookingPages.push(normBookingPage({ ...fields, id: "b" + uid(), createdAt: Date.now() }));
+      else Object.assign(page, fields);
+      saveBookingPages();
+      hidePopover();
+      renderBookingList();
+      setStatus(`${isNew ? "Created" : "Updated"} booking page “${escapeHTML(val)}”. Use Copy link to share it.`);
+    };
+    q(".ce-save").onclick = (e) => { e.stopPropagation(); save(); };
+    q(".ce-cancel").onclick = hidePopover;
+    q("[data-close]").onclick = hidePopover;
+    for (const input of [name, loc]) {
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); save(); } });
+      input.addEventListener("input", () => { err.textContent = ""; });
+    }
+    const del = q(".ce-delete");
+    if (del) {
+      let armed = false;
+      del.onclick = (e) => {
+        e.stopPropagation();
+        // Two-step delete: the first click asks for confirmation (booked events stay on the calendar).
+        if (!armed) { armed = true; del.textContent = "Delete this page?"; del.classList.add("armed"); return; }
+        bookingPages = bookingPages.filter((x) => x !== page);
+        saveBookingPages();
+        hidePopover();
+        renderBookingList();
+        setStatus(`Deleted booking page “${escapeHTML(page.name)}”. Times already booked stay on your calendar.`);
+      };
+    }
+    p.hidden = false;
+    placePopover(anchor);
+    if (FINE_POINTER) { name.focus(); name.select(); } // don't pop the keyboard up on phones
+  }
+
+  // ----- guest view (#book/<id>) -----
+  function bookingHashId() {
+    const m = /^#book\/(.+)$/.exec(location.hash);
+    if (!m) return null;
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+  function syncBookingHash() {
+    const id = bookingHashId();
+    if (id !== null) {
+      if (bkView.open && bkView.pageId !== id) bkView.pushed = false; // address edited by hand: don't step back to the old page
+      if (!bkView.open || bkView.pageId !== id) openBookingGuest(id);
+    }
+    else if (bkView.open) hideBookingGuest();
+  }
+  function previewBookingPage(p, btn) {
+    bkView.returnTo = btn || null;
+    if (bookingHashId() !== p.id) {
+      location.hash = `book/${encodeURIComponent(p.id)}`; // fires hashchange, which finds it already open
+      bkView.pushed = true; // so closing can step back instead of leaving an extra history entry
+    }
+    openBookingGuest(p.id);
+  }
+  function openBookingGuest(id) {
+    hidePopover();
+    const page = bookingById(id);
+    Object.assign(bkView, { pageId: id, step: "pick", slot: null, booked: null, notice: "", day: null,
+      form: { name: "", email: "", note: "" } });
+    const now = new Date();
+    const first = page && firstBookingDay(page, now, bookingBusy());
+    if (first) bkView.day = dayKey(first);
+    const m = first || now;
+    bkView.month = new Date(m.getFullYear(), m.getMonth(), 1);
+    if (!bkView.open) {
+      // Everything behind the guest view is out of reach (mouse, Tab and screen readers).
+      for (const n of document.body.children) {
+        if (n === bkEl.guest || n.tagName === "SCRIPT" || n.inert) continue;
+        n.inert = true;
+        bkView.inerted.push(n);
+      }
+    }
+    bkView.open = true;
+    bkEl.guest.hidden = false;
+    bkEl.copy.hidden = !page;
+    bkEl.guest.scrollTop = 0;
+    renderBookingGuest(".bk-title");
+  }
+  function hideBookingGuest() {
+    bkView.open = false;
+    bkView.pushed = false;
+    bkEl.guest.hidden = true;
+    bkEl.wrap.innerHTML = "";
+    bkView.inerted.forEach((n) => { n.inert = false; });
+    bkView.inerted = [];
+    const back = bkView.returnTo;
+    bkView.returnTo = null;
+    if (back && back.isConnected) back.focus();
+  }
+  // The close / back control: drop the #book/… part of the address and show the calendar again.
+  function closeBookingGuest() {
+    if (!bkView.open) return;
+    const pushed = bkView.pushed;
+    hideBookingGuest();
+    if (pushed) history.back();
+    else if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  }
+
+  // Header: page name, length and location.
+  function bookingGuestHead(page) {
+    const head = document.createElement("header");
+    head.className = "bk-head";
+    head.innerHTML = `<div class="bk-kicker">Book time with me</div><h1 class="bk-title" id="bkTitle" tabindex="-1"></h1><div class="bk-meta"></div>`;
+    head.querySelector(".bk-title").textContent = page.name;
+    const meta = head.querySelector(".bk-meta");
+    const item = (icon, text) => {
+      const s = document.createElement("span");
+      s.className = "bk-meta-i";
+      s.innerHTML = icon;
+      s.append(text);
+      meta.appendChild(s);
+    };
+    item(BOOK_CLOCK, `${page.duration} min`);
+    if (page.location) item(POP_PIN, page.location);
+    return head;
+  }
+  const bookingDayLong = (d, year = false) =>
+    d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", ...(year ? { year: "numeric" } : {}) });
+  const bookingSlotLabel = (d) => { const h = d.getHours(); return `${h % 12 || 12}:${pad(d.getMinutes())}${h < 12 ? "am" : "pm"}`; };
+  function bookingTimeZone() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
+  }
+
+  // Re-render the guest view; the first match of focusSel (a selector, or a list tried in order) gets
+  // keyboard focus afterwards, so focus never falls back to the page behind.
+  function renderBookingGuest(focusSel) {
+    const page = bookingById(bkView.pageId);
+    const wrap = bkEl.wrap;
+    wrap.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "bk-card";
+    wrap.appendChild(card);
+    if (!page) {
+      card.classList.add("bk-missing");
+      card.innerHTML = `<h1 class="bk-title" id="bkTitle" tabindex="-1">This booking page doesn't exist</h1>
+        <p class="bk-text">The link may be mistyped, or the page was deleted. Booking pages are saved in the browser
+          they were made in, so the link only works there.</p>
+        <button type="button" class="bk-primary bk-home">Go to the calendar</button>`;
+      card.querySelector(".bk-home").addEventListener("click", closeBookingGuest);
+    } else if (bkView.step === "form" && bkView.slot) {
+      renderBookingForm(card, page);
+    } else if (bkView.step === "done" && bkView.booked) {
+      renderBookingDone(card, page);
+    } else {
+      bkView.step = "pick";
+      renderBookingPick(card, page);
+    }
+    bkEl.guest.setAttribute("aria-labelledby", "bkTitle");
+    const target = [].concat(focusSel || [], ".bk-title").map((sel) => wrap.querySelector(sel)).find(Boolean);
+    if (target) target.focus({ preventScroll: target.classList.contains("bk-title") });
+  }
+
+  function renderBookingPick(card, page) {
+    const now = new Date(), busy = bookingBusy(), today = startOfDay(now);
+    const last = addDays(today, page.ahead);
+    card.appendChild(bookingGuestHead(page));
+    if (bkView.notice) {
+      const n = document.createElement("p");
+      n.className = "bk-notice";
+      n.setAttribute("role", "status");
+      n.tabIndex = -1;
+      n.textContent = bkView.notice;
+      card.appendChild(n);
+      bkView.notice = "";
+    }
+    const body = document.createElement("div");
+    body.className = "bk-body";
+    card.appendChild(body);
+
+    // Left: the month, with days that have an open time in bold.
+    const m0 = bkView.month;
+    const cal = document.createElement("section");
+    cal.className = "bk-cal";
+    cal.setAttribute("aria-label", "Choose a day");
+    cal.innerHTML = `<div class="bk-monthbar"><h2 class="bk-month"></h2><div>
+        <button type="button" class="icon-btn small bk-prev" aria-label="Previous month">${BOOK_PREV}</button>
+        <button type="button" class="icon-btn small bk-next" aria-label="Next month">${BOOK_NEXT}</button></div></div>
+      <div class="bk-grid"></div>`;
+    cal.querySelector(".bk-month").textContent = `${MONTHS[m0.getMonth()]} ${m0.getFullYear()}`;
+    const prev = cal.querySelector(".bk-prev"), next = cal.querySelector(".bk-next");
+    prev.disabled = m0 <= new Date(today.getFullYear(), today.getMonth(), 1);
+    next.disabled = new Date(m0.getFullYear(), m0.getMonth() + 1, 1) > last;
+    const goMonth = (dir, sel) => {
+      bkView.month = new Date(m0.getFullYear(), m0.getMonth() + dir, 1);
+      // Keep the chosen day if it's in this month, else pick the month's first open day.
+      const cur = bkView.day && parseISO(bkView.day);
+      if (!cur || cur.getMonth() !== bkView.month.getMonth() || cur.getFullYear() !== bkView.month.getFullYear()) {
+        const n = new Date(bkView.month.getFullYear(), bkView.month.getMonth() + 1, 0).getDate();
+        bkView.day = null;
+        for (let i = 1; i <= n; i++) {
+          const d = new Date(bkView.month.getFullYear(), bkView.month.getMonth(), i);
+          if (bookingSlotsOn(page, d, now, busy).length) { bkView.day = dayKey(d); break; }
+        }
+      }
+      renderBookingGuest(sel);
+    };
+    prev.addEventListener("click", () => goMonth(-1, [".bk-prev:not(:disabled)", ".bk-next"]));
+    next.addEventListener("click", () => goMonth(1, [".bk-next:not(:disabled)", ".bk-prev"]));
+    const grid = cal.querySelector(".bk-grid");
+    for (const d of ["S", "M", "T", "W", "T", "F", "S"]) {
+      const h = document.createElement("div");
+      h.className = "bk-dow";
+      h.setAttribute("aria-hidden", "true");
+      h.textContent = d;
+      grid.appendChild(h);
+    }
+    for (let i = 0; i < m0.getDay(); i++) grid.appendChild(document.createElement("span"));
+    const daysIn = new Date(m0.getFullYear(), m0.getMonth() + 1, 0).getDate();
+    for (let i = 1; i <= daysIn; i++) {
+      const d = new Date(m0.getFullYear(), m0.getMonth(), i);
+      const open = bookingSlotsOn(page, d, now, busy).length > 0;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "bk-daybtn";
+      b.dataset.date = dayKey(d);
+      b.textContent = i;
+      b.disabled = !open;
+      if (sameDay(d, today)) b.classList.add("today");
+      if (open) b.setAttribute("aria-pressed", String(bkView.day === b.dataset.date));
+      b.setAttribute("aria-label", `${bookingDayLong(d)}${open ? "" : ", no open times"}`);
+      b.addEventListener("click", () => { bkView.day = b.dataset.date; renderBookingGuest(`.bk-daybtn[data-date="${b.dataset.date}"]`); });
+      grid.appendChild(b);
+    }
+    body.appendChild(cal);
+
+    // Right: the open times on the chosen day.
+    const times = document.createElement("section");
+    times.className = "bk-times";
+    times.setAttribute("aria-labelledby", "bkDayTitle");
+    times.innerHTML = `<h2 class="bk-day" id="bkDayTitle"></h2><div class="bk-slots"></div><p class="bk-tz"></p>`;
+    const dayTitle = times.querySelector(".bk-day"), slotsEl = times.querySelector(".bk-slots");
+    const slots = bkView.day ? bookingSlotsOn(page, parseISO(bkView.day), now, busy) : [];
+    if (bkView.day && slots.length) {
+      dayTitle.textContent = bookingDayLong(parseISO(bkView.day));
+      for (const sl of slots) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "bk-slot";
+        b.dataset.start = toISO(sl.start);
+        b.textContent = bookingSlotLabel(sl.start);
+        b.setAttribute("aria-label", `${bookingSlotLabel(sl.start)}, ${bookingDayLong(sl.start)}`);
+        b.addEventListener("click", () => {
+          bkView.slot = { start: toISO(sl.start), end: toISO(sl.end) };
+          bkView.step = "form";
+          renderBookingGuest(FINE_POINTER ? ".bk-in-name" : ".bk-back");
+        });
+        slotsEl.appendChild(b);
+      }
+    } else {
+      const weeks = page.ahead / 7;
+      const anyDay = firstBookingDay(page, now, busy);
+      dayTitle.textContent = anyDay ? "Pick a day" : "No open times";
+      const p = document.createElement("p");
+      p.className = "bk-text";
+      p.textContent = anyDay ? "Days in bold have open times."
+        : `There are no open times in the next ${weeks} week${weeks === 1 ? "" : "s"}. Check back later.`;
+      slotsEl.appendChild(p);
+    }
+    const tz = bookingTimeZone();
+    times.querySelector(".bk-tz").textContent = tz ? `Times are in your time zone (${tz.replace(/_/g, " ")})` : "Times are in your time zone";
+    body.appendChild(times);
+  }
+
+  function renderBookingForm(card, page) {
+    const s = parseISO(bkView.slot.start), e = parseISO(bkView.slot.end);
+    const back = document.createElement("button");
+    back.type = "button";
+    back.className = "bk-back";
+    back.innerHTML = `${BOOK_BACK}<span>Back to times</span>`;
+    back.addEventListener("click", () => bookingBackToTimes());
+    card.appendChild(back);
+    const head = bookingGuestHead(page);
+    const when = document.createElement("span");
+    when.className = "bk-meta-i bk-when";
+    when.innerHTML = POP_CAL;
+    when.append(`${bookingDayLong(s, true)} · ${fmtRange(s, e)}`);
+    head.querySelector(".bk-meta").prepend(when);
+    card.appendChild(head);
+    const form = document.createElement("form");
+    form.className = "bk-form";
+    form.noValidate = true;
+    form.autocomplete = "on";
+    form.innerHTML = `
+      <label class="bk-field"><span class="bk-label">Name <span aria-hidden="true">*</span></span>
+        <input class="bk-input bk-in-name" type="text" name="name" maxlength="100" autocomplete="name" required aria-required="true"></label>
+      <label class="bk-field"><span class="bk-label">Email <span aria-hidden="true">*</span></span>
+        <input class="bk-input bk-in-email" type="email" name="email" maxlength="200" autocomplete="email" required aria-required="true"></label>
+      <label class="bk-field"><span class="bk-label">Anything to share before the meeting? (optional)</span>
+        <textarea class="bk-input bk-in-note" name="note" rows="3" maxlength="1000"></textarea></label>
+      <div class="bk-err" role="alert"></div>
+      <button type="submit" class="bk-primary">Confirm booking</button>`;
+    const nameIn = form.querySelector(".bk-in-name"), emailIn = form.querySelector(".bk-in-email"), noteIn = form.querySelector(".bk-in-note");
+    const err = form.querySelector(".bk-err");
+    nameIn.value = bkView.form.name;
+    emailIn.value = bkView.form.email;
+    noteIn.value = bkView.form.note;
+    const keep = () => { bkView.form = { name: nameIn.value, email: emailIn.value, note: noteIn.value }; };
+    for (const input of [nameIn, emailIn, noteIn]) {
+      input.addEventListener("input", () => { keep(); input.removeAttribute("aria-invalid"); err.textContent = ""; });
+    }
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      keep();
+      const name = nameIn.value.trim(), email = emailIn.value.trim();
+      const fail = (input, msg) => { input.setAttribute("aria-invalid", "true"); err.textContent = msg; input.focus(); };
+      if (!name) return fail(nameIn, "Please enter your name.");
+      if (!BOOK_EMAIL_RE.test(email)) return fail(emailIn, "Please enter a valid email address.");
+      confirmBooking(page, name, email, noteIn.value.trim());
+    });
+    card.appendChild(form);
+  }
+  function bookingBackToTimes() {
+    const start = bkView.slot && bkView.slot.start;
+    bkView.step = "pick";
+    bkView.slot = null;
+    renderBookingGuest(start ? `.bk-slot[data-start="${start}"]` : null);
+  }
+
+  function confirmBooking(page, name, email, note) {
+    const s = parseISO(bkView.slot.start);
+    // Check again: something may have taken the time since the list was shown.
+    const open = bookingSlotsOn(page, s, new Date(), bookingBusy()).some((x) => x.start.getTime() === s.getTime());
+    if (!open) {
+      bkView.step = "pick";
+      bkView.slot = null;
+      bkView.notice = "Sorry, that time is no longer available. Please pick another.";
+      renderBookingGuest(".bk-notice");
+      return;
+    }
+    const ev = {
+      id: uid(), title: `${page.name} with ${name}`, start: bkView.slot.start, end: bkView.slot.end, allDay: false,
+      cal: calById(page.cal) ? page.cal : defaultCalId(), location: page.location || "",
+    };
+    pushUndo();
+    events.push(ev);
+    saveEvents();
+    // Events have no description field, so the guest's details go in a text file attached to the event
+    // (it shows in the event's popup; click it to read).
+    upsertFile(ev.id, "Booking details.txt", [
+      `Booked through your “${page.name}” booking page.`, "",
+      `Name: ${name}`, `Email: ${email}`, ...(note ? ["", "Note:", note] : []),
+    ].join("\n"), "user");
+    saveAttachments();
+    render();
+    setStatus(`Booked “${escapeHTML(ev.title)}” through your booking page. <button class="undo" type="button">Undo</button>`);
+    bkView.booked = { start: ev.start, end: ev.end, name, email, location: ev.location };
+    bkView.slot = null;
+    bkView.form = { name: "", email: "", note: "" };
+    bkView.step = "done";
+    renderBookingGuest(".bk-title");
+  }
+
+  function renderBookingDone(card, page) {
+    const b = bkView.booked;
+    const s = parseISO(b.start), e = parseISO(b.end);
+    card.classList.add("bk-done");
+    card.innerHTML = `<div class="bk-done-icon">${BOOK_DONE}</div>
+      <h1 class="bk-title" id="bkTitle" tabindex="-1">You're booked</h1>
+      <p class="bk-text bk-done-what"></p>
+      <div class="bk-meta bk-done-meta"></div>
+      <p class="bk-text bk-done-who"></p>
+      <button type="button" class="bk-primary bk-again">Book another time</button>`;
+    card.querySelector(".bk-done-what").textContent = `${page.name} with ${b.name}`;
+    const meta = card.querySelector(".bk-done-meta");
+    const item = (icon, text) => {
+      const sp = document.createElement("span");
+      sp.className = "bk-meta-i";
+      sp.innerHTML = icon;
+      sp.append(text);
+      meta.appendChild(sp);
+    };
+    item(POP_CAL, `${bookingDayLong(s, true)} · ${fmtRange(s, e)}`);
+    item(BOOK_CLOCK, `${page.duration} min`);
+    if (b.location) item(POP_PIN, b.location);
+    card.querySelector(".bk-done-who").textContent = `Booked for ${b.email}.`;
+    card.querySelector(".bk-again").addEventListener("click", () => {
+      bkView.step = "pick";
+      bkView.booked = null;
+      bkView.day = dayKey(s);
+      // The day just booked may have no times left: move on to the next one that does.
+      const now = new Date(), busy = bookingBusy();
+      if (!bookingSlotsOn(page, s, now, busy).length) { const f = firstBookingDay(page, now, busy); bkView.day = f ? dayKey(f) : null; }
+      const m = bkView.day ? parseISO(bkView.day) : now;
+      bkView.month = new Date(m.getFullYear(), m.getMonth(), 1);
+      renderBookingGuest(".bk-title");
+    });
+  }
+
+  bkEl.close.addEventListener("click", closeBookingGuest);
+  bkEl.copy.addEventListener("click", () => { const p = bookingById(bkView.pageId); if (p) copyBookingLink(p, bkEl.copy); });
+  const bookingEscape = () => {
+    if (bkView.step === "form") bookingBackToTimes();
+    else closeBookingGuest();
+  };
+  // The calendar's keyboard shortcuts (W, M, T, Ctrl+Z, …) don't apply while the guest view is open.
+  bkEl.guest.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape" && !e.isComposing) { e.preventDefault(); bookingEscape(); }
+  });
+  // …even if focus somehow ends up outside it (e.g. on the page body): Tab brings it back in.
+  document.addEventListener("keydown", (e) => {
+    if (!bkView.open || bkEl.guest.contains(e.target)) return;
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); bookingEscape(); }
+    else if (e.key === "Tab") { e.preventDefault(); bkEl.guest.focus(); }
+  }, true);
+  window.addEventListener("hashchange", syncBookingHash);
+  renderBookingList();
+  syncBookingHash();
 
   // ---------- Help tour (one per mode) ----------
   // Sections are separate topics; each step highlights an element (if it's on screen) and explains it.
@@ -4676,7 +5554,8 @@
       const id = tl.options[0];
       if (!id) return null;
       const before = { displayed: work.displayed, text: wk.text.value };
-      const real = sessions[id] && sessions[id].messages.length;
+      const existing = sessions[id];
+      const real = existing && existing.messages.length;
       if (!real) demoSession(id, [
         ["user", pick(["Can you draft an agenda for this?", "Make me a prep checklist for this.", "Write some notes I can bring."])],
         ["assistant", "Sure — I put it in a file and attached it to the event. It covers the goals, a short timeline and what to bring.", "Prep notes.md"],
@@ -4684,6 +5563,7 @@
       displaySession(id);
       return () => {
         dropDemoSessions();
+        if (!real && existing) sessions[id] = existing;
         const back = before.displayed && sessions[before.displayed] && sessions[before.displayed].open ? before.displayed : null;
         work.displayed = back;
         wk.text.value = before.text;
@@ -4803,7 +5683,7 @@
     goToDate(u.focus, false);
     setSidebar(u.sidebarOpen);
     render();
-    if (view === "week") el.weekBody.scrollTop = u.scroll;
+    if (timeView()) el.weekBody.scrollTop = u.scroll;
   }
 
   function tourTargets(st) {
@@ -4968,6 +5848,7 @@
     el.aiInput.focus();
   }
   function closeQuickAdd() {
+    stopDictation(el.aiForm);
     if (el.aiForm.parentNode !== aiHome.parent) aiHome.parent.insertBefore(el.aiForm, aiHome.next);
     el.qaCard.hidden = true;
     el.qaFab.hidden = false;
@@ -4999,6 +5880,7 @@
     setView(b.dataset.view);
   });
 
+  bindDictation(el.aiForm, el.aiInput, (message) => setStatus(escapeHTML(message), true));
   el.aiForm.addEventListener("submit", (e) => { e.preventDefault(); submitCommand(el.aiInput.value); });
   el.aiInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submitCommand(el.aiInput.value); }
@@ -5048,6 +5930,15 @@
       return;
     }
     if (e.key === "Escape") {
+      // Escape cancels an in-progress drag through the same paths as pointercancel.
+      if (drag || tdrag || hdrag) {
+        const fake = { pointerId: -1 };
+        if (drag && ["mmove", "mmore", "mdate", "mcreate", "dismiss"].includes(drag.mode)) endMonthDrag(fake, true);
+        else if (drag) endDrag(fake, true);
+        if (tdrag) endTaskDrag(fake, true);
+        if (hdrag) endHeadDrag(fake, true);
+        return;
+      }
       if (quickAddOpen() && el.quickAdd.contains(e.target) && !el.aiSend.disabled) {
         closeQuickAdd();
         el.qaFab.focus();
@@ -5069,7 +5960,9 @@
     }
     if (e.altKey || e.shiftKey) return;
     // Google Calendar's single-key shortcuts.
-    if (key === "w") setView("week");
+    if (key === "d") setView("day");
+    else if (key === "y") setView("year");
+    else if (key === "w") setView("week");
     else if (key === "m") setView("month");
     else if (key === "t") goToDate(new Date());
     else if (key === "j" || key === "n") step(1);
@@ -5081,7 +5974,7 @@
     if (mode === "timeline") { if (!tl.drag) drawTimeline(); }
     else if (!dragging()) refreshMain();
   });
-  setInterval(() => { if (!dragging() && view === "week") renderGrid(); }, 60000); // keep the red "now" line moving
+  setInterval(() => { if (!dragging() && timeView()) renderGrid(); }, 60000); // keep the red "now" line moving
 
   render();
   renderTasks();
@@ -5089,6 +5982,6 @@
   renderMeetList();
   syncQuickAdd();
   setMode(mode);
-  try { if (!localStorage.getItem(WELCOME_KEY)) setTimeout(() => openTour("welcome"), 300); } catch { /* storage blocked: skip it */ }
+  try { if (!localStorage.getItem(WELCOME_KEY) && !bkView.open) setTimeout(() => openTour("welcome"), 300); } catch { /* storage blocked: skip it */ }
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();

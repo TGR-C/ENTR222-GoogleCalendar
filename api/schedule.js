@@ -107,7 +107,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { command, events = [], tasks = [], calendars = [], now, weekStart, weekEnd, slot, eventId } = req.body || {};
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const { command, now, weekStart, weekEnd, slot, eventId } = body;
+  const objs = (v) => (Array.isArray(v) ? v : []).filter((x) => x && typeof x === "object");
+  const events = objs(body.events), tasks = objs(body.tasks), calendars = objs(body.calendars);
   if (typeof command !== "string" || !command.trim()) {
     return res.status(400).json({ error: "Missing command" });
   }
@@ -115,7 +118,7 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Command too long" });
   }
 
-  const calList = (Array.isArray(calendars) ? calendars : []).map(({ id, name, color, visible }) => ({
+  const calList = calendars.map(({ id, name, color, visible }) => ({
     id, name, color, visible: visible !== false,
   }));
   const calName = new Map(calList.map((c) => [c.id, c.name]));
@@ -123,7 +126,7 @@ export default async function handler(req, res) {
   const context = {
     now,
     visible_week: { start: weekStart, end: weekEnd },
-    ...(slot && TIME_RE.test(slot.start) && TIME_RE.test(slot.end)
+    ...(slot && typeof slot === "object" && TIME_RE.test(slot.start) && TIME_RE.test(slot.end)
       ? {
         selected_slot: {
           start: slot.start, end: slot.end,
@@ -133,7 +136,7 @@ export default async function handler(req, res) {
         },
       }
       : {}),
-    ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
+    ...(typeof eventId === "string" && events.some((e) => e.id === eventId)
       ? { selected_event_id: eventId }
       : {}),
     calendars: calList,
@@ -141,7 +144,7 @@ export default async function handler(req, res) {
       id, title, start, end, calendar: calName.get(cal) || "", location: location || "", all_day: !!allDay,
       ...(taskId ? { is_task: true, done: !!done } : {}),
     })),
-    tasks: (Array.isArray(tasks) ? tasks : []).map(({ id, title }) => ({ id, title })),
+    tasks: tasks.map(({ id, title }) => ({ id, title })),
   };
 
   try {
