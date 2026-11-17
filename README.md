@@ -54,6 +54,24 @@ You can also work with the grid directly:
   and isn't available. Click a person to see just their availability.
 - Close with the ✕ or by clicking the top line again. Everything is stored in the browser.
 
+## Connection Hub (messages → events and tasks)
+
+Pick **Connection Hub** from the mode menu (Calendar ▾). It uses made-up demo messages — nothing is really
+connected.
+
+- **Sources** (left): Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe. Tick up to
+  **3**; each becomes a column of incoming messages, newest at the top, a few per page (‹ › to page,
+  **«** back to page 1). ☰ hides the sources list.
+- **Construct** (the big section): choose **Build: Auto / Events / Tasks**, then
+  1. add events or tasks **by hand** (+ Event / + Task),
+  2. click messages to select them and **✨ construct from the selected messages**, or
+  3. pick whole columns and **✨ read whole columns**.
+  Constructed items stack like calendar blocks (tasks like task rows); each can be edited (type, title,
+  date/time, calendar, location), unticked, or removed. **Add … to calendar** places the ticked events on the
+  calendar at their dates and times and puts tasks in the task list (undoable).
+- Endpoint: `api/hub.js` (same model, `claude-haiku-5-5`); relative dates are read against each message's
+  sent time, and things already on your calendar are skipped.
+
 ## Action Timeline mode
 
 Click **Calendar ▾** (top left) and pick **Action Timeline** for a read-only "what's now / what's next" view:

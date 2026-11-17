@@ -1,6 +1,13 @@
 {
   "functions": {
-    "api/schedule.js": { "maxDuration": 60 },
-    "api/work.js": { "maxDuration": 60 }
+    "api/schedule.js": {
+      "maxDuration": 60
+    },
+    "api/work.js": {
+      "maxDuration": 60
+    },
+    "api/hub.js": {
+      "maxDuration": 60
+    }
   }
 }

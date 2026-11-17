@@ -1837,7 +1837,7 @@
   // ---------- modes: Calendar / Action Timeline ----------
   const MODE_KEY = "nl-calendar-mode";
   let mode = (() => {
-    try { return localStorage.getItem(MODE_KEY) === "timeline" ? "timeline" : "calendar"; } catch { return "calendar"; }
+    try { const v = localStorage.getItem(MODE_KEY); return v === "timeline" || v === "hub" ? v : "calendar"; } catch { return "calendar"; }
   })();
   const modeEl = { btn: $("modeBtn"), menu: $("modeMenu"), label: $("modeLabel") };
 
@@ -1845,16 +1845,19 @@
     mode = m;
     try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
     document.body.dataset.mode = m;
-    modeEl.label.textContent = m === "timeline" ? "Action Timeline" : "Calendar";
+    modeEl.label.textContent = m === "timeline" ? "Action Timeline" : m === "hub" ? "Connection Hub" : "Calendar";
     const menuBtn = $("menuBtn");
-    menuBtn.setAttribute("aria-label", m === "timeline" ? "AI chat + vertical timeline" : "Main menu");
-    menuBtn.title = m === "timeline" ? "AI chat + vertical timeline" : "Main menu";
+    const menuLabel = m === "timeline" ? "AI chat + vertical timeline" : m === "hub" ? "Show or hide sources" : "Main menu";
+    menuBtn.setAttribute("aria-label", menuLabel);
+    menuBtn.title = menuLabel;
     modeEl.menu.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.mode === m)));
     closeModeMenu();
     hidePopover();
     if (quickAddOpen()) closeQuickAdd();
     tlEl.root.hidden = m !== "timeline";
+    hubEl.root.hidden = m !== "hub";
     if (m === "timeline") { if (wtm.active) exitMeet(); tl.auto = true; buildTimeline(); renderWork(); }
+    else if (m === "hub") { if (wtm.active) exitMeet(); setExpanded(false); renderHub(); }
     else { setExpanded(false); render(); }
   }
   function closeModeMenu() {
@@ -3629,6 +3632,486 @@
   // While a Whentomeet is open the day headers are display-only.
   el.weekHead.addEventListener("pointerdown", (e) => { if (wtm.active) e.stopImmediatePropagation(); }, true);
 
+  // ---------- Connection Hub ----------
+  // Incoming messages from other apps (made-up demo data), up to 3 sources shown as columns, and a
+  // Construct section that turns them into events/tasks (by hand or with AI) and adds them to the calendar.
+  const HUB_KEY = "nl-calendar-hub-v1";
+  const HUB_PAGE = 5;
+  const HUB_MAX = 3;
+  const HUB_SOURCES = [
+    { id: "slack", name: "Slack", color: "#611f69", glyph: "#" },
+    { id: "email", name: "Email", color: "#d93025", glyph: "@" },
+    { id: "canvas", name: "Canvas", color: "#c2410c", glyph: "C" },
+    { id: "teams", name: "Microsoft Teams", color: "#5b5fc7", glyph: "T" },
+    { id: "discord", name: "Discord", color: "#5865f2", glyph: "D" },
+    { id: "sms", name: "Text messages", color: "#188038", glyph: "✉" },
+    { id: "groupme", name: "GroupMe", color: "#0090c8", glyph: "G" },
+  ];
+  // [minutes ago, from, channel / subject / course, text] — demo messages, times are relative to "now".
+  const HUB_RAW = {
+    slack: [
+      [12, "Alex Rivera", "#pitch-team", "Can we do a pitch run-through tomorrow at 3pm? Room 204 if it's free."],
+      [47, "Priya Shah", "#pitch-team", "Deck v3 is up in the drive. Can someone review slides 8–12 before Friday?"],
+      [95, "Jordan Lee", "#general", "Lol the coffee machine is broken again ☕"],
+      [180, "Sam Chen", "Direct message", "Hey, could you send me the customer interview notes when you get a chance?"],
+      [320, "Maya Thompson", "#pitch-team", "Investor practice Q&A moved to Thursday 10:30–11:30, same Zoom link."],
+      [600, "Alex Rivera", "#design", "Love the new logo direction 🔥"],
+      [1100, "Diego Martinez", "Direct message", "Are you free for a quick sync on pricing next Monday at 9?"],
+      [1500, "Priya Shah", "#general", "Reminder: team photos are this Friday at noon outside the library."],
+      [2900, "Hannah Kim", "#pitch-team", "Thanks everyone for today 🙌"],
+      [4300, "Omar Haddad", "#ops", "Please submit your expense reports by the end of next week."],
+    ],
+    email: [
+      [25, "Prof. Dana Whitfield", "Office hours change", "This week my office hours move to Wednesday 2–4pm in Room 310 instead of Thursday."],
+      [70, "Career Center", "Mock interview confirmed", "Your mock interview is confirmed for Friday at 11:00 AM at the Career Center, 2nd floor."],
+      [150, "Alex Rivera", "Re: lunch", "Lunch tomorrow works! 12:30 at Campus Café?"],
+      [260, "Founder Weekly", "This week in startups", "Top 10 fundraising tips for first-time founders, plus this week's demo day recap."],
+      [400, "Maria Lopez (landlord)", "Maintenance visit", "A plumber will stop by on Thursday between 9 and 11am to check the kitchen sink."],
+      [900, "Registrar", "Spring registration", "Spring registration opens next Tuesday at 8:00 AM. Please review your degree audit before then."],
+      [1300, "Sam Chen", "Draft for review", "Attached the market sizing draft — could you give me feedback by Wednesday?"],
+      [2000, "Campus Bank", "Statement ready", "Your monthly statement is ready to view online."],
+      [3100, "Dr. Patel's office", "Appointment reminder", "Reminder: your dental cleaning is on Monday at 4:15 PM."],
+      [5200, "Library", "Book due soon", "\"The Lean Startup\" is due back next Thursday."],
+    ],
+    canvas: [
+      [40, "ENTR 222 · Prof. Whitfield", "Announcement", "Final pitch deck is due Friday at 11:59 PM. Upload a PDF to the assignment page."],
+      [200, "ENTR 222", "Assignment", "Read Chapter 7 (Customer Discovery) before Thursday's class."],
+      [500, "STAT 210 · Dr. Huang", "Announcement", "Midterm 2 is next Tuesday during class time (2:00–3:15pm) in Hall B. Bring a calculator."],
+      [800, "STAT 210", "Grades posted", "Homework 5 grades are now available."],
+      [1400, "ENTR 222", "Discussion", "Reply to at least two classmates on the market sizing thread by Sunday night."],
+      [2300, "WRIT 150 · Ms. Ortega", "Announcement", "Peer review workshop on Wednesday at 10am — bring two printed copies of your draft."],
+      [3600, "STAT 210", "Office hours", "TA office hours this week: Thursday 5–6pm, Room 112."],
+      [5000, "ENTR 222", "Announcement", "Great job on the elevator pitches, everyone!"],
+    ],
+    teams: [
+      [30, "Maya Thompson", "Internship · Weekly", "Can you join the client call tomorrow at 2pm? I'll send the Teams link."],
+      [240, "Diego Martinez", "Internship", "Please update the project tracker before end of day Friday."],
+      [700, "HR Team", "Internship", "Reminder: complete the security training module this week."],
+      [1600, "Maya Thompson", "Internship · Weekly", "Nice work on the slides yesterday."],
+      [3000, "Diego Martinez", "Internship", "Team lunch next Wednesday at 12, my treat 🍕"],
+      [4800, "HR Team", "Internship", "Timesheets are due every Friday by 5pm."],
+    ],
+    discord: [
+      [15, "kai_dev", "#study-group", "Study session for the stats midterm Sunday 7pm in the library basement, who's in?"],
+      [130, "leo", "#gaming", "gg last night"],
+      [450, "nora", "#study-group", "Can someone share the practice exam answers?"],
+      [1000, "kai_dev", "#hackathon", "Hackathon registration closes Saturday at midnight — sign up if you're joining our team!"],
+      [2200, "mira", "#general", "anyone want to get boba later?"],
+      [3900, "nora", "#hackathon", "Team kickoff call Friday 8pm on voice chat."],
+    ],
+    sms: [
+      [8, "Mom", "Text", "Call me when you get a chance! Also, dinner Sunday at 6?"],
+      [60, "Jordan Lee", "Text", "Running 10 min late to the gym"],
+      [210, "Alex Rivera", "Text", "Can you pick up poster board for the pitch before Thursday?"],
+      [900, "Dr. Patel's office", "Text", "Reply C to confirm your appointment Monday 4:15 PM."],
+      [2600, "Sam Chen", "Text", "Haha that meme 😂"],
+      [4100, "Grandpa", "Text", "Happy early birthday! Party is Saturday the 28th at 2pm at our place."],
+    ],
+    groupme: [
+      [55, "Hannah Kim", "Club Soccer", "Practice moved to Wednesday 6–7:30pm on the north field."],
+      [380, "Omar Haddad", "Club Soccer", "Bring your dues ($20) to the next practice."],
+      [1200, "Hannah Kim", "Roommates", "Can someone take out the recycling this week?"],
+      [2500, "Jordan Lee", "Roommates", "Apartment cleaning Saturday at 10am, everyone please be home 🧽"],
+      [4500, "Omar Haddad", "Club Soccer", "Game this Saturday at 1pm vs. State, meet at 12:15."],
+    ],
+  };
+  const hubNow = Date.now();
+  const hubMsgs = {};
+  for (const src of HUB_SOURCES) {
+    hubMsgs[src.id] = (HUB_RAW[src.id] || [])
+      .map(([mins, from, where, text], i) => ({ id: `${src.id}-${i + 1}`, source: src.id, from, where, text, at: new Date(hubNow - mins * 60000) }))
+      .sort((a, b) => b.at - a.at); // newest first
+  }
+  const msgById = (id) => hubMsgs[id.split("-")[0]]?.find((m) => m.id === id);
+  const srcById = (id) => HUB_SOURCES.find((s) => s.id === id);
+  const hubSaved = loadJSON(HUB_KEY, {});
+  const hub = {
+    sources: (Array.isArray(hubSaved.sources) ? hubSaved.sources : ["slack", "email", "canvas"]).filter(srcById).slice(0, HUB_MAX),
+    items: Array.isArray(hubSaved.items) ? hubSaved.items : [],
+    build: ["auto", "events", "tasks"].includes(hubSaved.build) ? hubSaved.build : "auto",
+    pages: {}, selected: new Set(), colPick: new Set(), busy: false, editing: null, undoable: false,
+  };
+  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ sources: hub.sources, items: hub.items, build: hub.build })); } catch { /* ignore */ } };
+  const hubEl = {
+    root: $("hub"), sources: $("hubSources"), note: $("hubSideNote"), cols: $("hubCols"),
+    build: $("hcBuild"), fromSel: $("hcFromSel"), fromSelLabel: $("hcFromSelLabel"), chips: $("hcColChips"),
+    fromCols: $("hcFromCols"), fromColsLabel: $("hcFromColsLabel"), newEvent: $("hcNewEvent"), newTask: $("hcNewTask"),
+    status: $("hcStatus"), count: $("hcCount"), all: $("hcAll"), list: $("hcList"), add: $("hcAdd"),
+  };
+  function msgTime(d) {
+    const mins = Math.round((Date.now() - d) / 60000);
+    if (mins < 1) return "now";
+    if (mins < 60) return `${mins}m ago`;
+    if (sameDay(d, new Date())) return fmtTime(d);
+    if (sameDay(d, addDays(new Date(), -1))) return `Yesterday ${fmtTime(d)}`;
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+
+  function renderHub() {
+    renderHubSources();
+    renderHubCols();
+    renderConstruct();
+  }
+
+  // Sidebar: tick up to three sources.
+  function renderHubSources() {
+    hubEl.sources.innerHTML = "";
+    const full = hub.sources.length >= HUB_MAX;
+    hubEl.note.textContent = full ? "Showing 3 of 3 — untick one to swap." : `Show up to ${HUB_MAX} at a time.`;
+    hubEl.note.classList.toggle("full", full);
+    for (const src of HUB_SOURCES) {
+      const on = hub.sources.includes(src.id);
+      const li = document.createElement("li");
+      li.innerHTML = `<label class="hub-src${on ? " on" : ""}${!on && full ? " locked" : ""}">
+        <input type="checkbox"><span class="hub-glyph"></span><span class="hub-src-name"></span><span class="hub-src-count"></span></label>`;
+      const cb = li.querySelector("input");
+      cb.checked = on;
+      cb.disabled = !on && full;
+      li.querySelector(".hub-glyph").textContent = src.glyph;
+      li.querySelector(".hub-glyph").style.background = src.color;
+      li.querySelector(".hub-src-name").textContent = src.name;
+      li.querySelector(".hub-src-count").textContent = hubMsgs[src.id].length;
+      if (!on && full) li.querySelector("label").title = "Up to 3 sources at a time";
+      cb.addEventListener("change", () => {
+        if (cb.checked && hub.sources.length < HUB_MAX) hub.sources.push(src.id);
+        else if (!cb.checked) { hub.sources = hub.sources.filter((x) => x !== src.id); hub.colPick.delete(src.id); }
+        saveHub();
+        renderHub();
+      });
+      hubEl.sources.appendChild(li);
+    }
+  }
+
+  // One column per shown source: newest messages first, a few per page.
+  function renderHubCols() {
+    const cols = hubEl.cols;
+    cols.innerHTML = "";
+    cols.style.setProperty("--cols", String(Math.max(1, hub.sources.length)));
+    cols.style.flexGrow = String(hub.sources.length || 0.6);
+    if (!hub.sources.length) {
+      cols.innerHTML = `<div class="hub-empty">Tick a source on the left to see its messages here.</div>`;
+      return;
+    }
+    for (const id of hub.sources) {
+      const src = srcById(id), msgs = hubMsgs[id];
+      const pages = Math.max(1, Math.ceil(msgs.length / HUB_PAGE));
+      const page = clamp(hub.pages[id] || 0, 0, pages - 1);
+      hub.pages[id] = page;
+      const col = document.createElement("section");
+      col.className = "hub-col";
+      col.style.setProperty("--src", src.color);
+      col.innerHTML = `<div class="hub-col-head"><span class="hub-glyph"></span><span class="hub-col-name"></span><span class="hub-col-count"></span></div>
+        <div class="hub-msgs"></div>
+        <div class="hub-pager">
+          <button type="button" class="icon-btn small" data-p="first" title="Back to page 1 (newest)" aria-label="First page, newest messages">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M11 6v12L3 12zm9 0v12l-8-6z"/></svg></button>
+          <button type="button" class="icon-btn small" data-p="prev" title="Newer" aria-label="Newer messages">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 6v12l-8-6z"/></svg></button>
+          <span class="hub-page"></span>
+          <button type="button" class="icon-btn small" data-p="next" title="Older" aria-label="Older messages">
+            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6v12l8-6z"/></svg></button>
+        </div>`;
+      col.querySelector(".hub-glyph").textContent = src.glyph;
+      col.querySelector(".hub-glyph").style.background = src.color;
+      col.querySelector(".hub-col-name").textContent = src.name;
+      const sel = msgs.filter((m) => hub.selected.has(m.id)).length;
+      col.querySelector(".hub-col-count").textContent = sel ? `${sel} selected` : `${msgs.length} messages`;
+      const list = col.querySelector(".hub-msgs");
+      for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) list.appendChild(hubMsgEl(m));
+      col.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
+      const go = (p) => { hub.pages[id] = p; renderHubCols(); };
+      col.querySelector('[data-p="first"]').disabled = page === 0;
+      col.querySelector('[data-p="prev"]').disabled = page === 0;
+      col.querySelector('[data-p="next"]').disabled = page >= pages - 1;
+      col.querySelector('[data-p="first"]').addEventListener("click", () => go(0));
+      col.querySelector('[data-p="prev"]').addEventListener("click", () => go(page - 1));
+      col.querySelector('[data-p="next"]').addEventListener("click", () => go(page + 1));
+      cols.appendChild(col);
+    }
+  }
+  function hubMsgEl(m) {
+    const on = hub.selected.has(m.id);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "hub-msg" + (on ? " sel" : "");
+    b.setAttribute("role", "checkbox");
+    b.setAttribute("aria-checked", String(on));
+    b.title = on ? "Selected for Construct — click to unselect" : "Click to select for Construct";
+    b.innerHTML = `<div class="hm-top"><span class="wtm-av"></span><span class="hm-from"></span><span class="hm-time"></span>
+      <span class="hm-check">${CHECK_ICON}</span></div><div class="hm-where"></div><div class="hm-text"></div>`;
+    b.querySelector(".wtm-av").textContent = initials(m.from.replace(/[^A-Za-z ]/g, "") || m.from);
+    b.querySelector(".wtm-av").style.background = avatarColor(m.from);
+    b.querySelector(".hm-from").textContent = m.from;
+    b.querySelector(".hm-time").textContent = msgTime(m.at);
+    b.querySelector(".hm-where").textContent = m.where;
+    b.querySelector(".hm-text").textContent = m.text;
+    b.addEventListener("click", () => {
+      if (hub.selected.has(m.id)) hub.selected.delete(m.id); else hub.selected.add(m.id);
+      renderHubCols();
+      renderConstructTools();
+    });
+    return b;
+  }
+
+  // ----- Construct -----
+  function renderConstruct() {
+    renderConstructTools();
+    renderConstructList();
+  }
+  function renderConstructTools() {
+    hubEl.build.querySelectorAll("[data-build]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.build === hub.build)));
+    const n = hub.selected.size;
+    hubEl.fromSelLabel.textContent = n ? `From ${n} selected message${n === 1 ? "" : "s"}` : "From selected messages";
+    hubEl.fromSel.disabled = !n || hub.busy;
+    hubEl.fromSel.title = n ? "" : "Click messages in the columns to select them";
+    for (const id of [...hub.colPick]) if (!hub.sources.includes(id)) hub.colPick.delete(id);
+    hubEl.chips.innerHTML = `<span class="hc-label">Read</span>`;
+    for (const id of hub.sources) {
+      const src = srcById(id);
+      const c = document.createElement("button");
+      c.type = "button";
+      c.className = "hc-chip";
+      c.setAttribute("aria-pressed", String(hub.colPick.has(id)));
+      c.innerHTML = `<span class="hub-glyph"></span><span></span>`;
+      c.querySelector(".hub-glyph").textContent = src.glyph;
+      c.querySelector(".hub-glyph").style.background = src.color;
+      c.querySelector("span:last-child").textContent = src.name;
+      c.addEventListener("click", () => { if (hub.colPick.has(id)) hub.colPick.delete(id); else hub.colPick.add(id); renderConstructTools(); });
+      hubEl.chips.appendChild(c);
+    }
+    if (!hub.sources.length) hubEl.chips.insertAdjacentHTML("beforeend", `<span class="hc-none">no columns shown</span>`);
+    const k = hub.colPick.size;
+    hubEl.fromColsLabel.textContent = k ? `Read ${k} whole column${k === 1 ? "" : "s"}` : "Read whole columns";
+    hubEl.fromCols.disabled = !k || hub.busy;
+    hubEl.fromCols.title = k ? "" : "Pick one or more columns above";
+  }
+  function hubStatus(html, isError = false) {
+    hubEl.status.innerHTML = html;
+    hubEl.status.classList.toggle("error", isError);
+  }
+
+  function itemWhen(it) {
+    if (it.type === "task") return "Task";
+    const s0 = parseISO(it.start), e0 = parseISO(it.end);
+    if (it.allDay) {
+      const days = Math.round((startOfDay(e0) - startOfDay(s0)) / 86400000);
+      return days > 1 ? `${shortDate(s0)} – ${shortDate(addDays(e0, -1))} · All day` : `${shortDate(s0)} · All day`;
+    }
+    return `${shortDate(s0)} · ${fmtRange(s0, e0)}`;
+  }
+  function renderConstructList() {
+    const items = hub.items;
+    const keep = items.filter((it) => it.keep).length;
+    hubEl.count.textContent = items.length ? `Constructed (${items.length})` : "Constructed";
+    hubEl.all.hidden = !items.length;
+    hubEl.all.textContent = keep === items.length ? "Select none" : "Select all";
+    const nEv = items.filter((it) => it.keep && it.type === "event").length, nTk = keep - nEv;
+    const parts = [nEv && `${nEv} event${nEv === 1 ? "" : "s"}`, nTk && `${nTk} task${nTk === 1 ? "" : "s"}`].filter(Boolean);
+    hubEl.add.textContent = keep ? `Add ${parts.join(" + ")} to calendar` : "Add to calendar";
+    hubEl.add.disabled = !keep;
+    hubEl.list.innerHTML = "";
+    if (!items.length) {
+      hubEl.list.innerHTML = `<div class="hc-empty">Nothing constructed yet. Pick messages and let AI construct, or add an event or task by hand.</div>`;
+      return;
+    }
+    for (const it of items) hubEl.list.appendChild(hubItemEl(it));
+  }
+  function hubItemEl(it) {
+    const card = document.createElement("div");
+    const color = it.type === "event" ? (COLORS[(calById(it.cal) || calById(defaultCalId())).color] || COLORS.peacock) : "#1a73e8";
+    // (hc-ev / hc-task, not "event"/"task": those class names are taken by the calendar's own blocks)
+    card.className = `hc-item ${it.type === "event" ? "hc-ev" : "hc-task"}${it.keep ? " keep" : ""}`;
+    card.style.setProperty("--c", color);
+    card.innerHTML = `<div class="hc-item-row">
+        <label class="hc-keep" title="Keep this one"><input type="checkbox"></label>
+        <div class="hc-item-body"><div class="hc-it-title"></div><div class="hc-it-when"></div><div class="hc-it-from"></div></div>
+        <button type="button" class="hc-ibtn" data-a="edit" aria-label="Edit" title="Edit">${PENCIL}</button>
+        <button type="button" class="hc-ibtn" data-a="del" aria-label="Remove" title="Remove">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+      </div>`;
+    const cb = card.querySelector("input");
+    cb.checked = !!it.keep;
+    cb.addEventListener("change", () => { it.keep = cb.checked; saveHub(); renderConstructList(); });
+    card.querySelector(".hc-it-title").textContent = it.title || "(No title)";
+    card.querySelector(".hc-it-when").textContent = itemWhen(it) + (it.type === "event" && it.location ? ` · ${it.location}` : "");
+    card.querySelector(".hc-it-from").textContent = it.from || "";
+    card.querySelector('[data-a="edit"]').addEventListener("click", () => { hub.editing = hub.editing === it.id ? null : it.id; renderConstructList(); });
+    card.querySelector('[data-a="del"]').addEventListener("click", () => {
+      hub.items = hub.items.filter((x) => x !== it);
+      if (hub.editing === it.id) hub.editing = null;
+      saveHub();
+      renderConstructList();
+    });
+    if (hub.editing === it.id) card.appendChild(hubEditForm(it));
+    return card;
+  }
+  // Inline editor: type, title, date/times (events), calendar, location.
+  function hubEditForm(it) {
+    const f = document.createElement("form");
+    f.className = "hc-edit";
+    f.autocomplete = "off";
+    const s0 = it.start ? parseISO(it.start) : null, e0 = it.end ? parseISO(it.end) : null;
+    f.innerHTML = `
+      <div class="hc-seg small" role="radiogroup"><button type="button" data-t="event">Event</button><button type="button" data-t="task">Task</button></div>
+      <input class="hc-in" name="title" placeholder="Title" maxlength="200">
+      <div class="hc-ev-fields">
+        <div class="hc-line"><input class="hc-in" type="date" name="date"><label class="hc-check"><input type="checkbox" name="allDay"> All day</label></div>
+        <div class="hc-line hc-times"><input class="hc-in" type="time" name="from" step="900"><span>–</span><input class="hc-in" type="time" name="to" step="900"></div>
+        <div class="hc-line"><select class="hc-in" name="cal"></select></div>
+        <input class="hc-in" name="location" placeholder="Location" maxlength="200">
+      </div>
+      <div class="hc-edit-actions"><button type="submit" class="hc-small primary">Done</button></div>`;
+    f.querySelectorAll("[data-t]").forEach((b) => {
+      b.setAttribute("aria-checked", String(b.dataset.t === it.type));
+      b.addEventListener("click", () => { setItemType(it, b.dataset.t); saveHub(); renderConstructList(); });
+    });
+    f.title.value = it.title || "";
+    const evf = f.querySelector(".hc-ev-fields");
+    evf.hidden = it.type !== "event";
+    if (it.type === "event") {
+      f.date.value = dayKey(s0);
+      f.allDay.checked = !!it.allDay;
+      f.from.value = `${pad(s0.getHours())}:${pad(s0.getMinutes())}`;
+      f.to.value = `${pad(e0.getHours())}:${pad(e0.getMinutes())}`;
+      f.querySelector(".hc-times").hidden = !!it.allDay;
+      for (const c of calendars) f.cal.add(new Option(c.name, c.id));
+      f.cal.value = calById(it.cal) ? it.cal : defaultCalId();
+      f.location.value = it.location || "";
+    }
+    const apply = () => {
+      it.title = f.title.value.trim();
+      if (it.type === "event" && f.date.value) {
+        if (f.allDay.checked) Object.assign(it, allDaySpan(parseISO(`${f.date.value}T00:00`)));
+        else {
+          const st = parseISO(`${f.date.value}T${f.from.value || "09:00"}`);
+          let en = parseISO(`${f.date.value}T${f.to.value || "10:00"}`);
+          if (en <= st) en = new Date(st.getTime() + 3600000);
+          Object.assign(it, { start: toISO(st), end: toISO(en), allDay: false });
+        }
+        it.cal = f.cal.value;
+        it.location = f.location.value.trim();
+      }
+      saveHub();
+    };
+    f.addEventListener("input", apply);
+    f.allDay && f.allDay.addEventListener("change", () => { apply(); renderConstructList(); });
+    f.addEventListener("submit", (e) => { e.preventDefault(); apply(); hub.editing = null; renderConstructList(); });
+    setTimeout(() => { if (FINE_POINTER) f.title.focus(); }, 0);
+    return f;
+  }
+  function setItemType(it, type) {
+    if (it.type === type) return;
+    it.type = type;
+    if (type === "event" && !it.start) {
+      // A task becoming an event: tomorrow 9–10am until the user picks a time.
+      const d = addDays(startOfDay(new Date()), 1);
+      Object.assign(it, { start: toISO(new Date(d.getTime() + 9 * 3600000)), end: toISO(new Date(d.getTime() + 10 * 3600000)), allDay: false, cal: it.cal || defaultCalId() });
+    }
+  }
+  function newHubItem(type) {
+    const st = new Date(); st.setMinutes(0, 0, 0); st.setHours(st.getHours() + 1);
+    const it = { id: "h" + uid(), type, title: "", keep: true, from: "Added by you", cal: defaultCalId(), location: "",
+      start: type === "event" ? toISO(st) : "", end: type === "event" ? toISO(new Date(st.getTime() + 3600000)) : "", allDay: false };
+    hub.items.unshift(it);
+    hub.editing = it.id;
+    saveHub();
+    renderConstructList();
+  }
+
+  // AI: read the chosen messages and propose events/tasks.
+  async function hubConstruct(msgs, label) {
+    if (!msgs.length || hub.busy) return;
+    hub.busy = true;
+    renderConstructTools();
+    hubStatus(`<span class="spinner"></span>Reading ${msgs.length} message${msgs.length === 1 ? "" : "s"} from ${escapeHTML(label)}…`);
+    try {
+      const soon = addDays(startOfDay(new Date()), 21), past = addDays(startOfDay(new Date()), -1);
+      const res = await fetch("/api/hub", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          build: hub.build,
+          now: `${toISO(new Date())} (${new Date().toLocaleDateString(undefined, { weekday: "long" })})`,
+          calendars: calendars.map((c) => ({ name: c.name })),
+          existing: events.filter((e) => parseISO(e.start) < soon && parseISO(e.end) > past).map((e) => ({ title: e.title, start: e.start, end: e.end })),
+          messages: msgs.map((m) => ({
+            id: m.id, source: srcById(m.source).name, from: m.from, where: m.where, text: m.text,
+            sent_at: `${toISO(m.at)} (${m.at.toLocaleDateString(undefined, { weekday: "long" })})`,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      const made = (data.items || []).map((it) => {
+        const first = it.source_ids && it.source_ids.length ? msgById(it.source_ids[0]) : null;
+        const from = first ? `From ${srcById(first.source).name} · ${first.from}${it.source_ids.length > 1 ? ` +${it.source_ids.length - 1}` : ""}` : "From messages";
+        const base = { id: "h" + uid(), title: it.title, keep: true, from, sourceIds: it.source_ids || [], location: it.location || "", allDay: false, start: "", end: "" };
+        if (it.type === "task") return { ...base, type: "task", cal: defaultCalId() };
+        let span = { start: it.start, end: it.end, allDay: false };
+        if (it.all_day) span = allDaySpan(parseISO(it.start), Math.max(1, Math.round((startOfDay(parseISO(it.end)) - startOfDay(parseISO(it.start))) / 86400000)));
+        else if (parseISO(it.end) <= parseISO(it.start)) span.end = toISO(new Date(parseISO(it.start).getTime() + 3600000));
+        return { ...base, ...span, type: "event", cal: (calByName(it.calendar) || calById(defaultCalId())).id };
+      });
+      hub.items = [...made, ...hub.items];
+      saveHub();
+      const reply = data.reply ? escapeHTML(data.reply) : "";
+      hubStatus(made.length ? `${reply || "Done."} <b>${made.length} new</b> below.` : (reply || "Nothing to schedule in those messages."));
+    } catch (err) {
+      hubStatus(escapeHTML(err.message || "Something went wrong."), true);
+    } finally {
+      hub.busy = false;
+      renderConstruct();
+    }
+  }
+
+  // Put the kept items into the calendar (events) and task list (tasks).
+  function hubAddToCalendar() {
+    const kept = hub.items.filter((it) => it.keep && (it.type === "task" || (it.start && it.end)));
+    if (!kept.length) return;
+    pushUndo();
+    let nE = 0, nT = 0;
+    for (const it of kept) {
+      const title = it.title || "(No title)";
+      if (it.type === "task") { tasks.unshift({ id: uid(), title }); nT++; }
+      else {
+        events.push({ id: uid(), title, start: it.start, end: it.end, allDay: !!it.allDay, cal: calById(it.cal) ? it.cal : defaultCalId(), location: it.location || "" });
+        nE++;
+      }
+    }
+    hub.items = hub.items.filter((it) => !kept.includes(it));
+    hub.editing = null;
+    saveEvents();
+    saveTasks();
+    saveHub();
+    renderTasks();
+    renderConstructList();
+    const parts = [nE && `${nE} event${nE === 1 ? "" : "s"} to your calendar`, nT && `${nT} task${nT === 1 ? "" : "s"} to your task list`].filter(Boolean);
+    hubStatus(`Added ${parts.join(" and ")}. <button type="button" class="hc-link" data-undo>Undo</button>`);
+  }
+
+  hubEl.build.querySelectorAll("[data-build]").forEach((b) => b.addEventListener("click", () => { hub.build = b.dataset.build; saveHub(); renderConstructTools(); }));
+  hubEl.fromSel.addEventListener("click", () => {
+    const msgs = [...hub.selected].map(msgById).filter(Boolean);
+    const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
+    hubConstruct(msgs, srcs.join(", ")).then(() => { hub.selected.clear(); renderHubCols(); renderConstructTools(); });
+  });
+  hubEl.fromCols.addEventListener("click", () => {
+    const ids = [...hub.colPick];
+    hubConstruct(ids.flatMap((id) => hubMsgs[id]), ids.map((id) => srcById(id).name).join(", "));
+  });
+  hubEl.newEvent.addEventListener("click", () => newHubItem("event"));
+  hubEl.newTask.addEventListener("click", () => newHubItem("task"));
+  hubEl.all.addEventListener("click", () => {
+    const all = hub.items.every((it) => it.keep);
+    hub.items.forEach((it) => { it.keep = !all; });
+    saveHub();
+    renderConstructList();
+  });
+  hubEl.add.addEventListener("click", hubAddToCalendar);
+  hubEl.status.addEventListener("click", (e) => {
+    if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
+  });
+
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
   $("prevBtn").onclick = () => step(-1);
@@ -3645,6 +4128,7 @@
   });
   $("menuBtn").onclick = () => {
     if (mode === "timeline") { setExpanded(!tlEl.root.classList.contains("expanded")); return; }
+    if (mode === "hub") { hubEl.root.classList.toggle("side-hidden"); return; }
     el.sidebar.classList.toggle(isMobile() ? "open" : "collapsed");
     syncQuickAdd();
     setTimeout(refreshMain, 220);
@@ -3739,6 +4223,7 @@
     if (e.key === "Escape" && !cf.root.hidden) { closeConfirm(); return; }
     if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
     if (e.key === "Escape" && !modeEl.menu.hidden) { closeModeMenu(); return; }
+    if (mode === "hub") return; // the hub has no calendar shortcuts
     if (mode === "timeline") {
       // View only: no undo/redo or calendar shortcuts here.
       if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
