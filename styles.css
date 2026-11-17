@@ -1416,6 +1416,11 @@ input.hc-in[name="title"] { width: 100%; font-size: 14px; }
   .range-title { font-size: 16px; }
   .day-head .dnum { font-size: 18px; width: 32px; height: 32px; line-height: 32px; }
 }
+/* Phones: tighter top-right icons, so the theme toggle doesn't push Help off the screen. */
+@media (max-width: 600px) {
+  .topbar-right { gap: 2px; }
+  .topbar-right .icon-btn { width: 40px; height: 40px; }
+}
 
 /* ---------- Booking pages ---------- */
 /* sidebar list */
