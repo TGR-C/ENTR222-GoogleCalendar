@@ -47,7 +47,7 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
   **red under 5 min** (overlaps show in red).
 - **Drag the line** (or use ← / → or horizontal scroll) to look further ahead; the ◀ ▶ buttons at the top middle (around the date)
   step one day at a time — days with nothing planned show a "Nothing planned" card (plus any all-day items);
-  jump to the previous / next day with events; **Now** returns to the present.
+  **Now** returns to the present.
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to
   Calendar to change anything. The mode is remembered between visits.
 
