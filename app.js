@@ -96,7 +96,12 @@
   function loadEvents() {
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) {
+          return list.filter((ev) => ev && typeof ev === "object" && typeof ev.start === "string" && typeof ev.end === "string");
+        }
+      }
     } catch { /* ignore */ }
     const seeded = seedEvents();
     try { localStorage.setItem(STORE_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
@@ -105,7 +110,7 @@
   function loadCalendars() {
     try {
       const raw = localStorage.getItem(CAL_KEY);
-      if (raw) { const c = JSON.parse(raw); if (Array.isArray(c) && c.length) return c; }
+      if (raw) { const c = JSON.parse(raw); if (Array.isArray(c)) { const ok = c.filter((x) => x && typeof x === "object" && typeof x.id === "string" && typeof x.name === "string"); if (ok.length) return ok; } }
     } catch { /* ignore */ }
     const seeded = DEFAULT_CALENDARS.map((c) => ({ ...c }));
     try { localStorage.setItem(CAL_KEY, JSON.stringify(seeded)); } catch { /* ignore */ }
@@ -146,7 +151,10 @@
   function loadTasks() {
     try {
       const raw = localStorage.getItem(TASK_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const list = JSON.parse(raw);
+        if (Array.isArray(list)) return list.filter((t) => t && typeof t === "object" && typeof t.id === "string");
+      }
     } catch { /* ignore */ }
     const seeded = ["Finish pitch deck", "Email professor about project", "Book a team meeting room"]
       .map((title) => ({ id: uid(), title }));
@@ -265,8 +273,8 @@
         .map((it) => ({
           ...it,
           dayStart,
-          top: Math.max(0, (it.s - dayStart) / 60000),            // minutes from midnight
-          bottom: Math.min(1440, (it.e - dayStart) / 60000),
+          top: it.s <= dayStart ? 0 : it.s.getHours() * 60 + it.s.getMinutes(),            // wall-clock minutes from midnight
+          bottom: it.e >= dayEnd ? 1440 : it.e.getHours() * 60 + it.e.getMinutes(),
         }))
         .sort((a, b) => a.top - b.top || b.bottom - a.bottom);
 
@@ -334,7 +342,7 @@
       div.querySelector(".etitle").prepend(checkboxEl(ev));
     }
     // Only the segment that holds the real end time gets a resize handle.
-    if (e - dayStart <= 86400000) {
+    if (e <= addDays(dayStart, 1)) {
       const h = document.createElement("div");
       h.className = "resize";
       div.appendChild(h);
@@ -530,8 +538,10 @@
   }
   function hidePopover() {
     // Don't leave focus in a hidden input, or keyboard shortcuts would think we're still typing.
-    if (el.popover.contains(document.activeElement)) document.activeElement.blur();
+    // Hide first: an inline edit saves on blur, and must not see the popover as still open (it would re-open it).
+    const focused = el.popover.contains(document.activeElement) ? document.activeElement : null;
     el.popover.hidden = true;
+    if (focused) focused.blur();
     delete el.popover.dataset.eventId;
     clearDraft();
   }
@@ -717,11 +727,14 @@
   const minuteAtY = (y) => (y - el.weekGrid.getBoundingClientRect().top) / hourPx() * 60;
   const snap = (m, fn = Math.round) => fn(m / SNAP) * SNAP;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const atMinute = (dayIdx, min) => new Date(addDays(weekStart, dayIdx).getTime() + min * 60000);
+  // Wall-clock minutes after local midnight of that day (Date rolls past 1440 into the next day), so DST days stay right.
+  const atMinute = (dayIdx, min) => { const d = addDays(weekStart, dayIdx); d.setHours(0, min, 0, 0); return d; };
+  const atDayMinute = (day, min) => { const d = startOfDay(day); d.setHours(0, min, 0, 0); return d; };
 
   function setBlockTime(block, s, e) {
     const top = s.getHours() * 60 + s.getMinutes();
-    const mins = Math.max((e - s) / 60000, 15);
+    const endMin = sameDay(s, e) ? e.getHours() * 60 + e.getMinutes() : 1440; // wall-clock, clipped to this day
+    const mins = Math.max(endMin - top, 15);
     block.style.top = `calc(var(--hour) * ${top / 60})`;
     block.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
     block.classList.toggle("compact", mins < 45);
@@ -746,7 +759,8 @@
         ev, block: evBlock, x0: e.clientX, y0: e.clientY, moved: false,
         duration: en - s, newStart: s, newEnd: en,
         // where inside the event the pointer grabbed it (minutes from event start)
-        grab: pointerMin - (s - addDays(weekStart, dayIdx)) / 60000,
+        // (measured from the grabbed segment's own day: a continuation segment starts at 00:00)
+        grab: pointerMin - (sameDay(s, addDays(weekStart, dayIdx)) ? s.getHours() * 60 + s.getMinutes() : 0),
       };
     } else {
       // First click on empty space while a popover is open just closes it (like Google).
@@ -793,8 +807,7 @@
 
     if (drag.mode === "move") {
       const dayIdx = colAtX(drag.px);
-      const durMin = drag.duration / 60000;
-      const startMin = clamp(snap(m - drag.grab), 0, Math.max(0, 1440 - Math.min(durMin, 1440)));
+      const startMin = clamp(snap(m - drag.grab), 0, 1440 - SNAP);
       drag.newStart = atMinute(dayIdx, startMin);
       drag.newEnd = new Date(drag.newStart.getTime() + drag.duration);
       const col = dayCols()[dayIdx];
@@ -807,7 +820,7 @@
       // The handle sits on the segment that holds the end time; resize within that day.
       const s = parseISO(drag.ev.start);
       const endDay = startOfDay(new Date(parseISO(drag.ev.end).getTime() - 1));
-      let end = new Date(endDay.getTime() + clamp(snap(m), 0, 1440) * 60000);
+      let end = atDayMinute(endDay, clamp(snap(m), 0, 1440));
       if (end - s < SNAP * 60000) end = new Date(s.getTime() + SNAP * 60000);
       drag.newEnd = end;
       setBlockTime(drag.block, s > endDay ? s : endDay, end);
@@ -867,6 +880,7 @@
 
   function applyActions(actions, taskActions = [], calActions = []) {
     if (!actions.length && !taskActions.length && !calActions.length) return [];
+    const savedRedo = redoStack;
     pushUndo();
     const changed = [];
     // Calendars first, so events in this same reply can refer to a newly created calendar by name.
@@ -916,10 +930,23 @@
         changed.push(ev);
       } else if (a.type === "update") {
         const ev = events.find((x) => x.id === a.id);
-        if (ev) { Object.assign(ev, fields); changed.push(ev); }
+        if (ev) {
+          Object.assign(ev, fields);
+          // A task placed on the calendar shares its title with the task (and its other entries).
+          if (ev.taskId && ev.title && ev.title.trim()) renameTask(ev.taskId, ev.title);
+          changed.push(ev);
+        }
       } else if (a.type === "delete") {
         const i = events.findIndex((x) => x.id === a.id);
-        if (i !== -1) { changed.push(events[i]); events.splice(i, 1); }
+        if (i !== -1) {
+          const gone = events[i];
+          changed.push(gone);
+          // Like deleteEvent: deleting a scheduled task removes the task and all of its entries.
+          if (gone.taskId) {
+            events = events.filter((x) => x.taskId !== gone.taskId);
+            tasks = tasks.filter((t) => t.id !== gone.taskId);
+          } else events.splice(i, 1);
+        }
       }
     }
     for (const t of taskActions) {
@@ -935,6 +962,8 @@
         if (task) { changed.push(task); setTaskDone(task.id, true, task.title); }
       }
     }
+    // Every action missed (unknown id, blank name…): nothing changed, so don't keep a no-op undo step.
+    if (!changed.length) { undoStack.pop(); redoStack = savedRedo; return changed; }
     saveCalendars();
     saveEvents();
     saveTasks();
@@ -968,10 +997,7 @@
     const o = JSON.parse(snap);
     events = o.events;
     tasks = o.tasks;
-    if (o.calendars) {
-      const shown = new Map(calendars.map((c) => [c.id, c.visible]));
-      calendars = o.calendars.map((c) => (shown.has(c.id) ? { ...c, visible: shown.get(c.id) } : c));
-    }
+    if (o.calendars) calendars = o.calendars;
     saveCalendars();
     saveEvents();
     saveTasks();
@@ -1173,13 +1199,13 @@
     suppressClick = true;
     setTimeout(() => (suppressClick = false), 0);
     if (d.mode === "dismiss") return;
-    if (cancelled) { renderMonth(); return; }
+    if (cancelled) { render(); return; }
 
     const date = parseISO(d.cell.dataset.date);
     if (d.mode === "mdate") { view = "week"; saveViewPref(); goToDate(date); return; }
     if (d.mode === "mmore") { showDayPopover(date, d.anchor); return; }
     if (d.mode === "mcreate") {
-      draft = { start: toISO(new Date(date.getTime() + 9 * 3600000)), end: toISO(new Date(date.getTime() + 10 * 3600000)), dayOnly: true };
+      draft = { start: toISO(atDayMinute(date, 540)), end: toISO(atDayMinute(date, 600)), dayOnly: true };
       renderMonth();
       showCreatePopover();
       return;
@@ -1188,13 +1214,13 @@
     if (!d.moved) { showPopover(d.ev, d.chip); return; }
     const target = d.over ? parseISO(d.over.dataset.date) : parseISO(d.from);
     const shift = Math.round((target - parseISO(d.from)) / 86400000);
-    if (!shift) { renderMonth(); return; }
+    if (!shift) { render(); return; }
     pushUndo();
     d.ev.start = toISO(addDays(parseISO(d.ev.start), shift));
     d.ev.end = toISO(addDays(parseISO(d.ev.end), shift));
     saveEvents();
     flashIds = new Set([d.ev.id]);
-    renderMonth();
+    render();
     flashIds = new Set();
     setStatus(`Moved “${escapeHTML(d.ev.title)}”. <button class="undo" type="button">Undo</button>`);
   }
@@ -1494,7 +1520,7 @@
     } else if (view === "month" && cell) {
       cell.classList.add("drop");
       const d = parseISO(cell.dataset.date);
-      t.target = { allDay: false, start: new Date(d.getTime() + 9 * 3600000) };
+      t.target = { allDay: false, start: atDayMinute(d, 540) };
     }
     const where = t.ghost.querySelector(".tg-where");
     const verb = events.some((x) => x.taskId === t.task.id) ? "Move to " : "";
@@ -1652,6 +1678,16 @@
     const c = calById(id);
     if (!c) return;
     c.visible = c.visible === false;
+    // Sidebar show/hide isn't part of undo: carry the new value into every saved snapshot.
+    const patch = (snap) => {
+      try {
+        const o = JSON.parse(snap);
+        (o.calendars || []).forEach((x) => { if (x.id === id) x.visible = c.visible; });
+        return JSON.stringify(o);
+      } catch { return snap; }
+    };
+    undoStack = undoStack.map(patch);
+    redoStack = redoStack.map(patch);
     saveCalendars();
     renderCalendars();
     hidePopover();
@@ -5048,6 +5084,15 @@
       return;
     }
     if (e.key === "Escape") {
+      // Escape cancels an in-progress drag through the same paths as pointercancel.
+      if (drag || tdrag || hdrag) {
+        const fake = { pointerId: -1 };
+        if (drag && ["mmove", "mmore", "mdate", "mcreate", "dismiss"].includes(drag.mode)) endMonthDrag(fake, true);
+        else if (drag) endDrag(fake, true);
+        if (tdrag) endTaskDrag(fake, true);
+        if (hdrag) endHeadDrag(fake, true);
+        return;
+      }
       if (quickAddOpen() && el.quickAdd.contains(e.target) && !el.aiSend.disabled) {
         closeQuickAdd();
         el.qaFab.focus();

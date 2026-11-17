@@ -58,7 +58,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { event = {}, files = [], history = [], message, now } = req.body || {};
+  const { event: rawEvent, files = [], history = [], message, now } = req.body || {};
+  const event = rawEvent && typeof rawEvent === "object" && !Array.isArray(rawEvent) ? rawEvent : {};
   if (typeof message !== "string" || !message.trim()) {
     return res.status(400).json({ error: "Missing message" });
   }
