@@ -1577,3 +1577,42 @@ textarea.bk-input { height: auto; padding: 8px 10px; resize: vertical; line-heig
 :root[data-theme="dark"] .logo-tl [fill="#fff"], :root[data-theme="dark"] .logo-hub [fill="#fff"] { fill: var(--surface); }
 /* Menus that open on top of a popover or panel sit one step lighter (Material dark elevation). */
 :root[data-theme="dark"] .cal-menu, :root[data-theme="dark"] .wk-switch-menu { background: #38393c; }
+
+/* ---------- Conflicts ---------- */
+/* The "this overlaps" card: centred near the top of the main area (placed from JS), above the grid and
+   popovers but below dialogs, the tour and the booking page. Theme tokens only, so dark mode works. */
+.conflict-card {
+  position: fixed; z-index: 70; width: min(440px, calc(100vw - 16px)); background: var(--menu-bg); color: var(--text);
+  border-radius: 12px; padding: 18px 20px 12px; box-shadow: var(--shadow-dialog); border-top: 4px solid var(--danger);
+}
+.conflict-card[hidden] { display: none; }
+.conflict-card:focus { outline: none; }
+.cfx-head { display: flex; align-items: center; gap: 10px; }
+.cfx-icon { fill: var(--danger); flex: none; }
+.cfx-title { flex: 1; margin: 0; font: 400 18px "Google Sans", Roboto, sans-serif; color: var(--text-strong); }
+.cfx-count { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.cfx-text { margin-top: 10px; font-size: 14px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.cfx-text p { margin: 0; }
+.cfx-text ul { margin: 6px 0 0; padding-left: 20px; }
+.cfx-text li + li { margin-top: 2px; }
+.cfx-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.cfx-choice {
+  width: 100%; min-height: 40px; padding: 8px 16px; border-radius: 20px; border: 1px solid var(--line); text-align: left;
+  font: 500 14px "Google Sans", Roboto, sans-serif; color: var(--blue); background: var(--menu-bg); overflow-wrap: anywhere;
+}
+.cfx-choice:hover { background: var(--blue-soft); }
+.cfx-choice.primary { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.cfx-choice.primary:hover { background: var(--blue-hover); }
+.cfx-choice[hidden], .cfx-auto[hidden], .cfx-none[hidden] { display: none; }
+.cfx-none { font-size: 13px; color: var(--text-2); padding: 2px 4px; }
+.cfx-auto { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.cfx-auto input { width: 16px; height: 16px; margin: 0; accent-color: var(--blue); cursor: pointer; }
+.cfx-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.cfx-spacer { flex: 1; }
+.cfx-btn { height: 36px; padding: 0 16px; border-radius: 18px; font: 500 14px "Google Sans", Roboto, sans-serif; color: var(--blue); }
+.cfx-btn:hover { background: var(--blue-soft); }
+.cfx-btn[data-cfx="cancel"] { color: var(--danger); }
+.cfx-btn[data-cfx="cancel"]:hover { background: var(--danger-soft); }
+.conflict-card button:focus-visible, .cfx-auto input:focus-visible { outline: 2px solid var(--blue-light); outline-offset: 2px; }
+.ai-status .cfx-ask { color: var(--blue); font-weight: 500; font-size: 12px; }
+.cfx-dot { color: var(--text-2); }
