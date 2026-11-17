@@ -63,10 +63,11 @@ The three tabs at the top left switch modes in one click — **Calendar**, **Act
 
 Click the **Connection Hub** tab (top left). It uses made-up demo messages — nothing is really connected.
 
-- **Sources** (left): Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe. Tick up to
-  **3**; each becomes a column of incoming messages, newest at the top, a few per page (‹ › to page,
-  **«** back to page 1). Click messages to select them, or **Select all** at the top of a column to take every
-  message in it. ☰ hides the sources list.
+- **Sources** (left): All sources, Slack, Email, Canvas, Microsoft Teams, Discord, Text messages, GroupMe.
+  With **All sources** (the default) the feed shows every message newest first, each tagged with its source;
+  click a source to see only its messages (click it again to go back to all). Messages show as cards, 12 per
+  page (‹ › to page, **«** back to page 1). Click cards to select them, or **Select all** to take every message
+  in the current view. ☰ hides the sources list.
 - **Construct** (the big section on the right): choose **Build: Auto / Events / Tasks**, then either
   **✨ construct from the selected messages** or add events or tasks **by hand** (+ Event / + Task).
   Constructed items stack like calendar blocks (tasks like task rows); each can be edited (type, title,

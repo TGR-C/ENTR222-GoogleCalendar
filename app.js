@@ -3637,8 +3637,7 @@
   // Incoming messages from other apps (made-up demo data), up to 3 sources shown as columns, and a
   // Construct section that turns them into events/tasks (by hand or with AI) and adds them to the calendar.
   const HUB_KEY = "nl-calendar-hub-v1";
-  const HUB_PAGE = 5;
-  const HUB_MAX = 3;
+  const HUB_PAGE = 12;
   const HUB_SOURCES = [
     { id: "slack", name: "Slack", color: "#611f69", glyph: "#" },
     { id: "email", name: "Email", color: "#d93025", glyph: "@" },
@@ -3661,6 +3660,12 @@
       [1500, "Priya Shah", "#general", "Reminder: team photos are this Friday at noon outside the library."],
       [2900, "Hannah Kim", "#pitch-team", "Thanks everyone for today 🙌"],
       [4300, "Omar Haddad", "#ops", "Please submit your expense reports by the end of next week."],
+      [2, "Jordan Lee", "#pitch-team", "Can we push standup to 10:15 tomorrow? My bus is late in the mornings this week."],
+      [260, "Priya Shah", "Direct message", "Do you have 20 minutes Wednesday afternoon to rehearse the Q&A? 4pm works for me."],
+      [700, "Maya Thompson", "#general", "Pizza in the lab at 6 tonight 🍕"],
+      [2000, "Sam Chen", "#research", "Uploaded 3 new interview transcripts. Please tag the pain points by Thursday."],
+      [3400, "Alex Rivera", "#pitch-team", "Demo day dry run is Saturday at 11am in the Innovation Hub — everyone please be there."],
+      [5600, "Omar Haddad", "#ops", "New badge access policy starts Monday — swing by the front desk to update your card."],
     ],
     email: [
       [25, "Prof. Dana Whitfield", "Office hours change", "This week my office hours move to Wednesday 2–4pm in Room 310 instead of Thursday."],
@@ -3673,6 +3678,11 @@
       [2000, "Campus Bank", "Statement ready", "Your monthly statement is ready to view online."],
       [3100, "Dr. Patel's office", "Appointment reminder", "Reminder: your dental cleaning is on Monday at 4:15 PM."],
       [5200, "Library", "Book due soon", "\"The Lean Startup\" is due back next Thursday."],
+      [5, "Jordan Lee", "Study group?", "Want to study for the stats midterm together Saturday around 2pm at the library?"],
+      [330, "Innovation Hub", "Booking confirmed", "Your booking for Room 204 is confirmed for Thursday 1–2pm."],
+      [1700, "Prof. Dana Whitfield", "Pitch feedback", "Please sign up for a 15-minute feedback slot before Monday using the class sheet."],
+      [2400, "SkyWay Airlines", "Trip reminder", "Your flight to Chicago departs Wednesday, Nov 25 at 6:40 PM. Check in online 24 hours before."],
+      [4400, "Campus Rec", "Class canceled", "Tonight's spin class is canceled. See you next week!"],
     ],
     canvas: [
       [40, "ENTR 222 · Prof. Whitfield", "Announcement", "Final pitch deck is due Friday at 11:59 PM. Upload a PDF to the assignment page."],
@@ -3683,6 +3693,11 @@
       [2300, "WRIT 150 · Ms. Ortega", "Announcement", "Peer review workshop on Wednesday at 10am — bring two printed copies of your draft."],
       [3600, "STAT 210", "Office hours", "TA office hours this week: Thursday 5–6pm, Room 112."],
       [5000, "ENTR 222", "Announcement", "Great job on the elevator pitches, everyone!"],
+      [10, "WRIT 150 · Ms. Ortega", "Assignment", "Final essay outline is due Monday at 9am — submit it through Canvas."],
+      [650, "STAT 210 · Dr. Huang", "Announcement", "Review session for Midterm 2 on Sunday 4–6pm in Hall B."],
+      [1900, "ENTR 222", "Quiz", "Quiz 4 opens Wednesday and closes Thursday at midnight."],
+      [4200, "WRIT 150", "Grades posted", "Essay 2 grades are available."],
+      [5800, "STAT 210", "Announcement", "Project groups are posted on the People page."],
     ],
     teams: [
       [30, "Maya Thompson", "Internship · Weekly", "Can you join the client call tomorrow at 2pm? I'll send the Teams link."],
@@ -3691,6 +3706,10 @@
       [1600, "Maya Thompson", "Internship · Weekly", "Nice work on the slides yesterday."],
       [3000, "Diego Martinez", "Internship", "Team lunch next Wednesday at 12, my treat 🍕"],
       [4800, "HR Team", "Internship", "Timesheets are due every Friday by 5pm."],
+      [90, "Diego Martinez", "Internship · Standup", "Daily standup tomorrow moves to 9:15 because of the all-hands."],
+      [1300, "Maya Thompson", "Internship", "Could you draft the client recap email? No rush, sometime this week."],
+      [2500, "HR Team", "Internship", "Holiday party is Friday, Dec 11 at 5pm at the Rooftop Lounge 🎉"],
+      [3700, "Diego Martinez", "Internship", "Thanks for jumping on that bug yesterday."],
     ],
     discord: [
       [15, "kai_dev", "#study-group", "Study session for the stats midterm Sunday 7pm in the library basement, who's in?"],
@@ -3699,6 +3718,11 @@
       [1000, "kai_dev", "#hackathon", "Hackathon registration closes Saturday at midnight — sign up if you're joining our team!"],
       [2200, "mira", "#general", "anyone want to get boba later?"],
       [3900, "nora", "#hackathon", "Team kickoff call Friday 8pm on voice chat."],
+      [300, "mira", "#study-group", "Flashcards for chapter 9 are in the pinned messages"],
+      [900, "kai_dev", "#hackathon", "Can someone set up the GitHub repo for our hackathon project before Friday?"],
+      [1800, "leo", "#gaming", "tournament next Saturday 8pm, sign-ups in #events"],
+      [3200, "nora", "#general", "happy friday!! 🎉"],
+      [4600, "kai_dev", "#study-group", "TA office hours are Thursday 5pm, I'll save us seats"],
     ],
     sms: [
       [8, "Mom", "Text", "Call me when you get a chance! Also, dinner Sunday at 6?"],
@@ -3707,6 +3731,10 @@
       [900, "Dr. Patel's office", "Text", "Reply C to confirm your appointment Monday 4:15 PM."],
       [2600, "Sam Chen", "Text", "Haha that meme 😂"],
       [4100, "Grandpa", "Text", "Happy early birthday! Party is Saturday the 28th at 2pm at our place."],
+      [35, "Priya Shah", "Text", "Are we still on for coffee tomorrow at 9:30?"],
+      [400, "Mom", "Text", "Don't forget to book your train home for Thanksgiving!"],
+      [1600, "Campus Pharmacy", "Text", "Your prescription is ready for pickup."],
+      [3500, "Hannah Kim", "Text", "Can you send me the soccer schedule?"],
     ],
     groupme: [
       [55, "Hannah Kim", "Club Soccer", "Practice moved to Wednesday 6–7:30pm on the north field."],
@@ -3714,6 +3742,11 @@
       [1200, "Hannah Kim", "Roommates", "Can someone take out the recycling this week?"],
       [2500, "Jordan Lee", "Roommates", "Apartment cleaning Saturday at 10am, everyone please be home 🧽"],
       [4500, "Omar Haddad", "Club Soccer", "Game this Saturday at 1pm vs. State, meet at 12:15."],
+      [140, "Jordan Lee", "Roommates", "Rent is due on the 1st — Venmo me your share by Monday please"],
+      [850, "Hannah Kim", "Club Soccer", "Team dinner after Saturday's game, 6pm at Luigi's 🍝"],
+      [1800, "Omar Haddad", "Club Soccer", "Need 2 more people to drive for the away game next weekend"],
+      [3300, "Jordan Lee", "Roommates", "Who ate my leftovers 😤"],
+      [5000, "Hannah Kim", "Club Soccer", "Jersey sizes are due this Friday"],
     ],
   };
   const hubNow = Date.now();
@@ -3727,12 +3760,14 @@
   const srcById = (id) => HUB_SOURCES.find((s) => s.id === id);
   const hubSaved = loadJSON(HUB_KEY, {});
   const hub = {
-    sources: (Array.isArray(hubSaved.sources) ? hubSaved.sources : ["slack", "email", "canvas"]).filter(srcById).slice(0, HUB_MAX),
+    view: srcById(hubSaved.view || "") ? hubSaved.view : null, // null = all sources
     items: Array.isArray(hubSaved.items) ? hubSaved.items : [],
     build: ["auto", "events", "tasks"].includes(hubSaved.build) ? hubSaved.build : "auto",
     pages: {}, selected: new Set(), busy: false, editing: null, undoable: false,
   };
-  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ sources: hub.sources, items: hub.items, build: hub.build })); } catch { /* ignore */ } };
+  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ view: hub.view, items: hub.items, build: hub.build })); } catch { /* ignore */ } };
+  const ALL_MSGS = Object.values(hubMsgs).flat().sort((a, b) => b.at - a.at);
+  const viewMsgs = () => (hub.view ? hubMsgs[hub.view] : ALL_MSGS);
   const hubEl = {
     root: $("hub"), sources: $("hubSources"), note: $("hubSideNote"), cols: $("hubCols"),
     build: $("hcBuild"), fromSel: $("hcFromSel"), fromSelLabel: $("hcFromSelLabel"),
@@ -3754,95 +3789,83 @@
     renderConstruct();
   }
 
-  // Sidebar: tick up to three sources.
+  // Sidebar: source tabs. "All sources" (or no tab picked) shows everything in time order.
   function renderHubSources() {
     hubEl.sources.innerHTML = "";
-    const full = hub.sources.length >= HUB_MAX;
-    hubEl.note.textContent = full ? "Showing 3 of 3 — untick one to swap." : `Show up to ${HUB_MAX} at a time.`;
-    hubEl.note.classList.toggle("full", full);
-    for (const src of HUB_SOURCES) {
-      const on = hub.sources.includes(src.id);
+    hubEl.note.textContent = hub.view ? `Showing ${srcById(hub.view).name} only` : "Showing all sources, newest first";
+    const tab = (id, name, glyph, color, count) => {
       const li = document.createElement("li");
-      li.innerHTML = `<label class="hub-src${on ? " on" : ""}${!on && full ? " locked" : ""}">
-        <input type="checkbox"><span class="hub-glyph"></span><span class="hub-src-name"></span><span class="hub-src-count"></span></label>`;
-      const cb = li.querySelector("input");
-      cb.checked = on;
-      cb.disabled = !on && full;
-      li.querySelector(".hub-glyph").textContent = src.glyph;
-      li.querySelector(".hub-glyph").style.background = src.color;
-      li.querySelector(".hub-src-name").textContent = src.name;
-      li.querySelector(".hub-src-count").textContent = hubMsgs[src.id].length;
-      if (!on && full) li.querySelector("label").title = "Up to 3 sources at a time";
-      cb.addEventListener("change", () => {
-        if (cb.checked && hub.sources.length < HUB_MAX) hub.sources.push(src.id);
-        else if (!cb.checked) hub.sources = hub.sources.filter((x) => x !== src.id);
-        saveHub();
-        renderHub();
-      });
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "hub-src" + (hub.view === id ? " on" : "");
+      b.setAttribute("aria-current", String(hub.view === id));
+      b.innerHTML = `<span class="hub-glyph"></span><span class="hub-src-name"></span><span class="hub-src-count"></span>`;
+      b.querySelector(".hub-glyph").textContent = glyph;
+      b.querySelector(".hub-glyph").style.background = color;
+      b.querySelector(".hub-src-name").textContent = name;
+      const sel = (id ? hubMsgs[id] : ALL_MSGS).filter((m) => hub.selected.has(m.id)).length;
+      b.querySelector(".hub-src-count").textContent = sel ? `${sel}/${count}` : count;
+      if (sel) b.querySelector(".hub-src-count").classList.add("sel");
+      // Clicking the tab that's already open goes back to all sources.
+      b.addEventListener("click", () => { hub.view = id && hub.view !== id ? id : null; saveHub(); renderHub(); });
+      li.appendChild(b);
       hubEl.sources.appendChild(li);
-    }
+    };
+    tab(null, "All sources", "∗", "#5f6368", ALL_MSGS.length);
+    for (const src of HUB_SOURCES) tab(src.id, src.name, src.glyph, src.color, hubMsgs[src.id].length);
   }
 
-  // One column per shown source: newest messages first, a few per page.
+  // The feed: the chosen source (or everything), newest first, as a grid of cards.
   function renderHubCols() {
-    const cols = hubEl.cols;
-    cols.innerHTML = "";
-    cols.style.setProperty("--cols", String(Math.max(1, hub.sources.length)));
-    cols.style.flexGrow = String(hub.sources.length || 0.6);
-    if (!hub.sources.length) {
-      cols.innerHTML = `<div class="hub-empty">Tick a source on the left to see its messages here.</div>`;
-      return;
-    }
-    for (const id of hub.sources) {
-      const src = srcById(id), msgs = hubMsgs[id];
-      const pages = Math.max(1, Math.ceil(msgs.length / HUB_PAGE));
-      const page = clamp(hub.pages[id] || 0, 0, pages - 1);
-      hub.pages[id] = page;
-      const col = document.createElement("section");
-      col.className = "hub-col";
-      col.style.setProperty("--src", src.color);
-      col.innerHTML = `<div class="hub-col-head"><span class="hub-glyph"></span><span class="hub-col-name"></span><span class="hub-col-count"></span>
-          <button type="button" class="hub-col-all"></button></div>
-        <div class="hub-msgs"></div>
-        <div class="hub-pager">
-          <button type="button" class="icon-btn small" data-p="first" title="Back to page 1 (newest)" aria-label="First page, newest messages">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M11 6v12L3 12zm9 0v12l-8-6z"/></svg></button>
-          <button type="button" class="icon-btn small" data-p="prev" title="Newer" aria-label="Newer messages">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 6v12l-8-6z"/></svg></button>
-          <span class="hub-page"></span>
-          <button type="button" class="icon-btn small" data-p="next" title="Older" aria-label="Older messages">
-            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6v12l8-6z"/></svg></button>
-        </div>`;
-      col.querySelector(".hub-glyph").textContent = src.glyph;
-      col.querySelector(".hub-glyph").style.background = src.color;
-      col.querySelector(".hub-col-name").textContent = src.name;
-      const sel = msgs.filter((m) => hub.selected.has(m.id)).length;
-      col.querySelector(".hub-col-count").textContent = sel ? `${sel} selected` : `${msgs.length} messages`;
-      // Select every message in this column (all pages) in one click.
-      const allBtn = col.querySelector(".hub-col-all");
-      const allOn = sel === msgs.length && msgs.length > 0;
-      allBtn.textContent = allOn ? "Unselect all" : "Select all";
-      allBtn.title = allOn ? `Unselect all ${src.name} messages` : `Select all ${msgs.length} ${src.name} messages (every page)`;
-      allBtn.setAttribute("aria-pressed", String(allOn));
-      allBtn.addEventListener("click", () => {
-        for (const m of msgs) { if (allOn) hub.selected.delete(m.id); else hub.selected.add(m.id); }
-        renderHubCols();
-        renderConstructTools();
-      });
-      const list = col.querySelector(".hub-msgs");
-      for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) list.appendChild(hubMsgEl(m));
-      col.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
-      const go = (p) => { hub.pages[id] = p; renderHubCols(); };
-      col.querySelector('[data-p="first"]').disabled = page === 0;
-      col.querySelector('[data-p="prev"]').disabled = page === 0;
-      col.querySelector('[data-p="next"]').disabled = page >= pages - 1;
-      col.querySelector('[data-p="first"]').addEventListener("click", () => go(0));
-      col.querySelector('[data-p="prev"]').addEventListener("click", () => go(page - 1));
-      col.querySelector('[data-p="next"]').addEventListener("click", () => go(page + 1));
-      cols.appendChild(col);
-    }
+    const box = hubEl.cols;
+    const src = hub.view && srcById(hub.view);
+    const msgs = viewMsgs();
+    const key = hub.view || "all";
+    const pages = Math.max(1, Math.ceil(msgs.length / HUB_PAGE));
+    const page = clamp(hub.pages[key] || 0, 0, pages - 1);
+    hub.pages[key] = page;
+    const sel = msgs.filter((m) => hub.selected.has(m.id)).length;
+    const allOn = sel === msgs.length && msgs.length > 0;
+    box.innerHTML = `<div class="hub-feed-head"><span class="hub-glyph"></span><span class="hub-col-name"></span><span class="hub-col-count"></span>
+        <button type="button" class="hub-col-all"></button></div>
+      <div class="hub-grid"></div>
+      <div class="hub-pager">
+        <button type="button" class="icon-btn small" data-p="first" title="Back to page 1 (newest)" aria-label="First page, newest messages">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M11 6v12L3 12zm9 0v12l-8-6z"/></svg></button>
+        <button type="button" class="icon-btn small" data-p="prev" title="Newer" aria-label="Newer messages">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 6v12l-8-6z"/></svg></button>
+        <span class="hub-page"></span>
+        <button type="button" class="icon-btn small" data-p="next" title="Older" aria-label="Older messages">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 6v12l8-6z"/></svg></button>
+      </div>`;
+    box.style.setProperty("--src", src ? src.color : "#5f6368");
+    const g = box.querySelector(".hub-feed-head .hub-glyph");
+    g.textContent = src ? src.glyph : "∗";
+    g.style.background = src ? src.color : "#5f6368";
+    box.querySelector(".hub-col-name").textContent = src ? src.name : "All sources";
+    box.querySelector(".hub-col-count").textContent = sel ? `${sel} of ${msgs.length} selected` : `${msgs.length} messages`;
+    const allBtn = box.querySelector(".hub-col-all");
+    allBtn.textContent = allOn ? "Unselect all" : "Select all";
+    allBtn.title = allOn ? "Unselect every message in this view" : `Select all ${msgs.length} messages in this view (every page)`;
+    allBtn.setAttribute("aria-pressed", String(allOn));
+    allBtn.addEventListener("click", () => {
+      for (const m of msgs) { if (allOn) hub.selected.delete(m.id); else hub.selected.add(m.id); }
+      renderHubSources();
+      renderHubCols();
+      renderConstructTools();
+    });
+    const grid = box.querySelector(".hub-grid");
+    for (const m of msgs.slice(page * HUB_PAGE, page * HUB_PAGE + HUB_PAGE)) grid.appendChild(hubMsgEl(m, !hub.view));
+    box.querySelector(".hub-page").textContent = `Page ${page + 1} / ${pages}`;
+    const go = (p) => { hub.pages[key] = p; renderHubCols(); grid.scrollTop = 0; };
+    box.querySelector('[data-p="first"]').disabled = page === 0;
+    box.querySelector('[data-p="prev"]').disabled = page === 0;
+    box.querySelector('[data-p="next"]').disabled = page >= pages - 1;
+    box.querySelector('[data-p="first"]').addEventListener("click", () => go(0));
+    box.querySelector('[data-p="prev"]').addEventListener("click", () => go(page - 1));
+    box.querySelector('[data-p="next"]').addEventListener("click", () => go(page + 1));
   }
-  function hubMsgEl(m) {
+  function hubMsgEl(m, showSource = false) {
     const on = hub.selected.has(m.id);
     const b = document.createElement("button");
     b.type = "button";
@@ -3857,9 +3880,22 @@
     b.querySelector(".hm-from").textContent = m.from;
     b.querySelector(".hm-time").textContent = msgTime(m.at);
     b.querySelector(".hm-where").textContent = m.where;
+    if (showSource) {
+      // In the all-sources feed, tag each card with where it came from.
+      const src = srcById(m.source);
+      const tag = document.createElement("span");
+      tag.className = "hm-src";
+      tag.innerHTML = `<span class="hub-glyph"></span><span></span>`;
+      tag.querySelector(".hub-glyph").textContent = src.glyph;
+      tag.querySelector(".hub-glyph").style.background = src.color;
+      tag.querySelector("span:last-child").textContent = src.name;
+      b.querySelector(".hm-where").prepend(tag);
+    }
+    b.style.setProperty("--src", srcById(m.source).color);
     b.querySelector(".hm-text").textContent = m.text;
     b.addEventListener("click", () => {
       if (hub.selected.has(m.id)) hub.selected.delete(m.id); else hub.selected.add(m.id);
+      renderHubSources();
       renderHubCols();
       renderConstructTools();
     });
@@ -4086,7 +4122,7 @@
   hubEl.fromSel.addEventListener("click", () => {
     const msgs = [...hub.selected].map(msgById).filter(Boolean);
     const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
-    hubConstruct(msgs, srcs.join(", ")).then(() => { hub.selected.clear(); renderHubCols(); renderConstructTools(); });
+    hubConstruct(msgs, srcs.length > 2 ? `${srcs.length} sources` : srcs.join(", ")).then(() => { hub.selected.clear(); renderHubSources(); renderHubCols(); renderConstructTools(); });
   });
   hubEl.newEvent.addEventListener("click", () => newHubItem("event"));
   hubEl.newTask.addEventListener("click", () => newHubItem("task"));
