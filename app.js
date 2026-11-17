@@ -2591,6 +2591,7 @@
     for (const f of picked) {
       if (f.size > 200 * 1024) { s.messages.push({ role: "error", text: `“${f.name}” is too big (text files up to 200 KB).`, at: Date.now() }); continue; }
       const text = await f.text().catch(() => null);
+      if (sessions[id] !== s) return;
       if (text == null || text.includes("\u0000")) { s.messages.push({ role: "error", text: `“${f.name}” isn't a text file.`, at: Date.now() }); continue; }
       upsertFile(id, f.name, text, "user");
       s.messages.push({ role: "note", text: `Attached ${f.name}`, at: Date.now() });
@@ -2861,8 +2862,10 @@
     return m.days.includes(date.getDay()) ? String(date.getDay()) : null;
   }
   function slotTimes(m, date, i) {
-    const s = new Date(startOfDay(date).getTime() + (m.start * 60 + i * SLOT_MIN) * 60000);
-    return [s, new Date(s.getTime() + SLOT_MIN * 60000)];
+    const s = startOfDay(date), e = startOfDay(date);
+    s.setHours(m.start, i * SLOT_MIN, 0, 0);
+    e.setHours(m.start, (i + 1) * SLOT_MIN, 0, 0);
+    return [s, e];
   }
   const busyAt = (s, e) => events.some((ev) => !ev.allDay && isVisible(ev) && parseISO(ev.start) < e && parseISO(ev.end) > s);
   // Your availability: what you painted, otherwise free unless an existing event is there.
@@ -3192,6 +3195,13 @@
       if (painting.add) w.dates.add(b.dataset.date); else w.dates.delete(b.dataset.date);
       b.classList.toggle("sel", painting.add);
     };
+    grid.addEventListener("click", (e) => {
+      if (e.detail !== 0) return;
+      const b = e.target.closest("button[data-date]");
+      if (!b || b.disabled) return;
+      if (w.dates.has(b.dataset.date)) w.dates.delete(b.dataset.date); else w.dates.add(b.dataset.date);
+      renderWizard();
+    });
     grid.addEventListener("pointerdown", (e) => {
       const b = e.target.closest("button[data-date]");
       if (!b || b.disabled) return;
@@ -3294,6 +3304,8 @@
 
   // The Whentomeet grid: one big block per 30 minutes for each day of the week shown, under the
   // normal day headers. Your events appear as month-view-style lines in the block where they start.
+  const wallMinutes = (d, base) => (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(base.getFullYear(), base.getMonth(), base.getDate())) / 60000 + d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60 + d.getMilliseconds() / 60000;
+
   function renderMeetGrid() {
     const m = activeMeet();
     wz.grid.hidden = !m;
@@ -3340,7 +3352,7 @@
           .sort((a, b) => parseISO(a.start) - parseISO(b.start) || parseISO(b.end) - parseISO(a.end))
           .forEach((ev) => {
             const st = parseISO(ev.start), en = parseISO(ev.end);
-            const i = clamp(Math.floor((st - winStart) / (SLOT_MIN * 60000)), 0, n - 1);
+            const i = clamp(Math.floor((wallMinutes(st, date) - m.start * 60) / SLOT_MIN), 0, n - 1);
             (lines[i] = lines[i] || []).push(ev);
             let lane = laneEnds.findIndex((t) => t <= st);
             if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
@@ -3415,7 +3427,6 @@
   // Draw each event's bar from its start to its end, using the real block positions (blocks have gaps).
   const BAR_X0 = 4, BAR_STEP = 8, BAR_W = 4;
   function placeEventBars(g, n) {
-    const slotMs = SLOT_MIN * 60000;
     g.querySelectorAll(".mg-bars").forEach((layer) => {
       const col = layer.style.gridColumn;
       const cells = [...g.querySelectorAll(".wtm-cell")].filter((c) => c.style.gridColumn === col)
@@ -3426,7 +3437,7 @@
       // Position (in px) of a moment within the window. An end time that falls exactly on a block
       // boundary stops at the bottom of the block before it (not across the gap into the next block).
       const yAt = (t, isEnd = false) => {
-        const pos = (t - layer._win) / slotMs;
+        const pos = (wallMinutes(t, layer._win) - wallMinutes(layer._win, layer._win)) / SLOT_MIN;
         if (pos <= 0) return rects[0].top;
         if (pos >= n) return rects[n - 1].top + rects[n - 1].h;
         if (isEnd && Number.isInteger(pos)) return rects[pos - 1].top + rects[pos - 1].h;
@@ -3443,7 +3454,7 @@
         bar.style.cssText = `left:${x}px;top:${y1}px;height:${y2 - y1}px;width:${BAR_W}px;--c:${color}`;
         bar.title = `${b.ev.title || "(No title)"} · ${fmtRange(b.st, b.en)}`;
         layer.appendChild(bar);
-        labels.push({ y: y2, x, color, text: fmtTime(b.en), cut: (b.en - layer._win) / slotMs > n });
+        labels.push({ y: y2, x, color, text: fmtTime(b.en), cut: (wallMinutes(b.en, layer._win) - wallMinutes(layer._win, layer._win)) / SLOT_MIN > n });
       }
       // End-time pills next to the bar ends. Events ending at the same moment share one pill (a dot per
       // event); pills that would still overlap are nudged apart.
@@ -4258,16 +4269,27 @@
       f.cal.value = calById(it.cal) ? it.cal : defaultCalId();
       f.location.value = it.location || "";
     }
+    let dateValue = f.date.value, allDayValue = f.allDay.checked, fromValue = f.from.value, toValue = f.to.value;
     const apply = () => {
       it.title = f.title.value.trim();
       if (it.type === "event" && f.date.value) {
-        if (f.allDay.checked) Object.assign(it, allDaySpan(parseISO(`${f.date.value}T00:00`)));
-        else {
+        const dateChanged = f.date.value !== dateValue;
+        const timingChanged = f.allDay.checked !== allDayValue || f.from.value !== fromValue || f.to.value !== toValue;
+        if (dateChanged && !timingChanged) {
+          const oldStart = parseISO(it.start), oldEnd = parseISO(it.end);
+          const days = Math.round((Date.UTC(oldEnd.getFullYear(), oldEnd.getMonth(), oldEnd.getDate()) - Date.UTC(oldStart.getFullYear(), oldStart.getMonth(), oldStart.getDate())) / 86400000);
+          const st = parseISO(`${f.date.value}T00:00`);
+          if (!it.allDay) st.setHours(oldStart.getHours(), oldStart.getMinutes(), oldStart.getSeconds(), oldStart.getMilliseconds());
+          const en = it.allDay ? addDays(st, days) : new Date(st.getTime() + (oldEnd - oldStart));
+          Object.assign(it, { start: toISO(st), end: toISO(en) });
+        } else if (timingChanged && f.allDay.checked) Object.assign(it, allDaySpan(parseISO(`${f.date.value}T00:00`)));
+        else if (timingChanged) {
           const st = parseISO(`${f.date.value}T${f.from.value || "09:00"}`);
           let en = parseISO(`${f.date.value}T${f.to.value || "10:00"}`);
           if (en <= st) en = new Date(st.getTime() + 3600000);
           Object.assign(it, { start: toISO(st), end: toISO(en), allDay: false });
         }
+        dateValue = f.date.value; allDayValue = f.allDay.checked; fromValue = f.from.value; toValue = f.to.value;
         it.cal = f.cal.value;
         it.location = f.location.value.trim();
       }
@@ -4423,7 +4445,7 @@
     setMode("hub");
     hub.views = [];
     hub.pages.all = 0;
-    for (const m of fresh) hub.selected.add(m.id);
+    hub.selected = new Set(fresh.map((m) => m.id));
     saveHub();
     renderHub();
     const g = hubEl.cols.querySelector(".hub-grid");
@@ -4438,8 +4460,7 @@
     const msgs = [...hub.selected].map(msgById).filter(Boolean);
     const srcs = [...new Set(msgs.map((m) => srcById(m.source).name))];
     hubConstruct(msgs, srcs.length > 2 ? `${srcs.length} sources` : srcs.join(", ")).then((ok) => {
-      if (ok) { msgs.forEach((m) => hub.seen.add(m.id)); saveHub(); updateHubSync(); } // no longer "new"
-      hub.selected.clear();
+      if (ok) { msgs.forEach((m) => { hub.seen.add(m.id); hub.selected.delete(m.id); }); saveHub(); updateHubSync(); } // no longer "new"
       renderHubSources();
       renderHubCols();
       renderConstructTools();
@@ -4712,7 +4733,8 @@
       const id = tl.options[0];
       if (!id) return null;
       const before = { displayed: work.displayed, text: wk.text.value };
-      const real = sessions[id] && sessions[id].messages.length;
+      const existing = sessions[id];
+      const real = existing && existing.messages.length;
       if (!real) demoSession(id, [
         ["user", pick(["Can you draft an agenda for this?", "Make me a prep checklist for this.", "Write some notes I can bring."])],
         ["assistant", "Sure — I put it in a file and attached it to the event. It covers the goals, a short timeline and what to bring.", "Prep notes.md"],
@@ -4720,6 +4742,7 @@
       displaySession(id);
       return () => {
         dropDemoSessions();
+        if (!real && existing) sessions[id] = existing;
         const back = before.displayed && sessions[before.displayed] && sessions[before.displayed].open ? before.displayed : null;
         work.displayed = back;
         wk.text.value = before.text;
