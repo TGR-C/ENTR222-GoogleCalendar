@@ -1026,6 +1026,7 @@ body[data-mode="hub"] .topbar-right { margin-left: auto; }
 .notice-list { margin: 14px 0 0; padding-left: 22px; font-size: 14px; line-height: 1.5; color: var(--text); }
 .notice-list li + li { margin-top: 10px; }
 .notice-list b { color: #202124; font-weight: 500; }
+.notice-thanks { margin: 14px 0 0; font-size: 14px; color: var(--text); }
 .hub-dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .hub-dlg-head .confirm-text { margin-top: 4px; }
 .hub-dlg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
