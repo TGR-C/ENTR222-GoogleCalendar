@@ -72,6 +72,8 @@
     return `${sameHalf ? a.replace(/am|pm/, "") : a} – ${fmtTime(e)}`;
   };
   const uid = () => Math.random().toString(36).slice(2, 10);
+  // Examples the help tour puts on screen are marked demo: true and never saved.
+  const notDemo = (x) => !(x && x.demo);
 
   // ---------- state ----------
   let calendars = loadCalendars();
@@ -152,7 +154,7 @@
     return seeded;
   }
   function saveTasks() {
-    try { localStorage.setItem(TASK_KEY, JSON.stringify(tasks)); } catch { /* ignore */ }
+    try { localStorage.setItem(TASK_KEY, JSON.stringify(tasks.filter(notDemo))); } catch { /* ignore */ }
   }
   // All-day events are stored as midnight → next midnight (end exclusive) with allDay: true.
   function allDaySpan(date, days = 1) {
@@ -163,7 +165,7 @@
     try { return localStorage.getItem(VIEW_KEY) === "month" ? "month" : "week"; } catch { return "week"; }
   }
   function saveEvents() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(events)); } catch { /* ignore */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(events.filter(notDemo))); } catch { /* ignore */ }
   }
   function seedEvents() {
     const ws = startOfWeek(new Date());
@@ -2240,8 +2242,9 @@
   let attachments = loadJSON(ATT_KEY, {});   // { [eventId]: [{id, name, content, source, createdAt, updatedAt}] }
   let sessions = loadJSON(SES_KEY, {});      // { [eventId]: {eventId, title, messages, open, lastActive} }
   const work = { displayed: null, pending: new Set(), unread: new Set(), drafts: {} };
-  const saveAttachments = () => { try { localStorage.setItem(ATT_KEY, JSON.stringify(attachments)); } catch { /* storage full */ } };
-  const saveSessions = () => { try { localStorage.setItem(SES_KEY, JSON.stringify(sessions)); } catch { /* storage full */ } };
+  const saveAttachments = () => { try { localStorage.setItem(ATT_KEY, JSON.stringify(Object.fromEntries(Object.entries(attachments)
+    .map(([k, list]) => [k, list.filter(notDemo)]).filter(([, list]) => list.length)))); } catch { /* storage full */ } };
+  const saveSessions = () => { try { localStorage.setItem(SES_KEY, JSON.stringify(Object.fromEntries(Object.entries(sessions).filter(([, x]) => notDemo(x))))); } catch { /* storage full */ } };
 
   const wk = {
     panel: $("wkPanel"), switchBtn: $("wkSwitch"), dot: $("wkDot"), title: $("wkTitle"), count: $("wkCount"),
@@ -2684,15 +2687,18 @@
     b.addEventListener("click", (e) => { e.stopPropagation(); startSession(id); });
     return b;
   }
+  function openWorkMenu() {
+    wk.workMenu.innerHTML = `<div class="wm-head">Work on…</div>`;
+    tl.options.filter((id) => id !== work.displayed).forEach((id) => wk.workMenu.appendChild(workOptionRow(id)));
+    wk.workMenu.hidden = false;
+  }
   wk.workBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     const choices = tl.options.filter((id) => id !== work.displayed);
     if (choices.length === 1) { startSession(choices[0]); return; }
     // Several things on this day: let the user pick.
     if (!wk.workMenu.hidden) { closeWorkMenu(); return; }
-    wk.workMenu.innerHTML = `<div class="wm-head">Work on…</div>`;
-    choices.forEach((id) => wk.workMenu.appendChild(workOptionRow(id)));
-    wk.workMenu.hidden = false;
+    openWorkMenu();
   });
   function cardWorkButton(eventId, small = false) {
     const b = document.createElement("button");
@@ -2782,7 +2788,7 @@
   const SLOT_MIN = 30;
   let meets = loadJSON(MEET_KEY, []);
   meetsReady = true;
-  const saveMeets = () => { try { localStorage.setItem(MEET_KEY, JSON.stringify(meets)); } catch { /* storage full */ } };
+  const saveMeets = () => { try { localStorage.setItem(MEET_KEY, JSON.stringify(meets.filter(notDemo))); } catch { /* storage full */ } };
   const wtm = { wizard: null, active: null, view: "mine", member: null, sel: null, paint: null };
   const wz = {
     mini: $("miniCal"), box: $("wtmWizard"), list: $("wtmList"), items: $("wtmItems"),
@@ -3798,7 +3804,7 @@
     pages: {}, selected: new Set(), busy: false, editing: null, undoable: false,
     seen: new Set(Array.isArray(hubSaved.seen) ? hubSaved.seen : []), // messages already checked by "Update events"
   };
-  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ views: hub.views, items: hub.items, build: hub.build, extra: hubExtra.map((x) => x.id), seen: [...hub.seen] })); } catch { /* ignore */ } };
+  const saveHub = () => { try { localStorage.setItem(HUB_KEY, JSON.stringify({ views: hub.views, items: hub.items.filter(notDemo), build: hub.build, extra: hubExtra.map((x) => x.id), seen: [...hub.seen] })); } catch { /* ignore */ } };
   const ALL_MSGS = Object.values(hubMsgs).flat().sort((a, b) => b.at - a.at);
   const viewMsgs = () => (hub.views.length
     ? hub.views.flatMap((id) => hubMsgs[id] || []).sort((a, b) => b.at - a.at)
@@ -4418,83 +4424,417 @@
 
   // ---------- Help tour (one per mode) ----------
   // Sections are separate topics; each step highlights an element (if it's on screen) and explains it.
+  // Each step can list "demo" keys: things the tour opens or puts on screen for that step (see DEMOS).
   const TOURS = {
     calendar: [
       { name: "AI: add & edit", steps: [
-        { title: "Just type what you want", target: "#aiForm", body: "Describe events in plain words: “Lunch with Sam tomorrow at noon”, “move my gym session to Friday 6pm”, “cancel everything on Wednesday”. The AI adds, moves or removes the right events." },
-        { title: "Click an empty time", target: "#weekBody", body: "Click (or drag across) an empty slot. Type a title and Save, or describe it under “Or describe it” and let the AI fill in the details." },
-        { title: "Click an event to change it", target: ".week-grid .event", body: "The popup takes a description too (“make it 2 hours”, “delete it”). Double-click the title or location to edit it, and click the colour square to move it to another calendar." },
-        { title: "Calendars are your tags", target: ".my-cals", body: "Each event takes its calendar's colour. Tick a calendar to show or hide it, + to make one, the pencil to rename or recolour. The AI can do this too (“make a Health tag in green”)." },
-        { title: "Messages from other apps", target: "#hubSync", body: "The red badge counts new messages in the Connection Hub. Click it to jump there with them selected." },
+        { title: "Just type what you want", target: "#aiForm", demo: ["sidebar", "aiText"], body: "Describe events in plain words: “Lunch with Sam tomorrow at noon”, “move my gym session to Friday 6pm”, “cancel everything on Wednesday”. The AI adds, moves or removes the right events." },
+        { title: "Click an empty time", target: [".week-grid .event.draft", "#popover"], demo: ["week", "createPop"], body: "Click (or drag across) an empty slot and this opens. Type a title and Save, or describe it under “Or describe it” and let the AI fill in the details." },
+        { title: "Click an event to change it", target: () => [tourEventBlock(), el.popover], demo: ["week", "eventPop"], body: "Clicking an event opens this. It takes a description too (“make it 2 hours”, “delete it”). Double-click the title or location to edit it, and click the colour square to move it to another calendar." },
+        { title: "Calendars are your tags", target: [".my-cals", "#popover"], demo: ["sidebar", "calEditor"], body: "Each event takes its calendar's colour. Tick a calendar to show or hide it, + to make one, the pencil to rename or recolour (open here). The AI can do this too (“make a Health tag in green”)." },
+        { title: "Messages from other apps", target: "#hubSync", demo: ["sidebar"], body: "The red badge counts new messages in the Connection Hub. Click it to jump there with them selected." },
         { title: "Undo anything", target: null, body: "Ctrl/⌘ + Z undoes and Ctrl + Y redoes every change — AI edits, drags and deletes included." },
       ] },
       { name: "Tasks", steps: [
-        { title: "Your to-do list", target: ".tasks", body: "+ adds a task, click one to rename it, and the circle checks it off. You can also tell the AI “remind me to call Mom”." },
-        { title: "Drag a task onto the calendar", target: ".tasks", body: "Drop it on a time for a 1-hour event, or on a day header (the “All day” zones light up) for an all-day item. Dragging it again moves it." },
-        { title: "Check it off on the calendar", target: "#weekBody", body: "Scheduled tasks show a circle on the calendar — tick it and the task is done everywhere." },
+        { title: "Your to-do list", target: ".tasks", demo: ["sidebar", "tasks"], body: "+ adds a task, click one to rename it, and the circle checks it off. You can also tell the AI “remind me to call Mom”." },
+        { title: "Drag a task onto the calendar", target: "#weekHead", demo: ["sidebar", "week", "tasks", "taskDrag"], body: "Drop it on a time for a 1-hour event, or on a day header (the “All day” zones light up, like now) for an all-day item. Dragging it again moves it." },
+        { title: "Check it off on the calendar", target: () => [tourEventBlock()], demo: ["week", "taskEvent"], body: "Scheduled tasks show a circle on the calendar — tick it and the task is done everywhere." },
       ] },
       { name: "Whentomeet", steps: [
-        { title: "Find a time with people", target: "#wtmNew", body: "The people icon next to the mini calendar starts a Whentomeet: pick dates (or days of the week), the hours, a name, then invite people." },
-        { title: "Open one", target: ".wtm-top", enter: () => tourMeet("mine"), body: "Click a Whentomeet in the sidebar list to open it — here's the example, opened for you. The sidebar becomes its panel and the calendar turns into big blocks; click this line or ✕ to go back." },
-        { title: "Mark your availability", target: "#meetGrid", enter: () => tourMeet("mine"), body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
-        { title: "See the group", target: "#meetGrid", enter: () => tourMeet("group"), body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person in the list to see just their times." },
-        { title: "Overlap warnings", target: ".wtm-top", enter: () => tourMeet("mine"), body: "If an event later lands on time you marked available, a red warning appears right under this line, with a one-click fix." },
+        { title: "Find a time with people", target: ["#wtmNew", "#wtmWizard"], demo: ["sidebar", "wizard"], body: "The people icon next to the mini calendar starts a Whentomeet: pick dates (or days of the week), the hours, a name, then invite people." },
+        { title: "Open one", target: ".wtm-top", demo: ["meet"], body: "Click a Whentomeet in the sidebar list to open it — here's the example, opened for you. The sidebar becomes its panel and the calendar turns into big blocks; click this line or ✕ to go back." },
+        { title: "Mark your availability", target: "#meetGrid", demo: ["meet"], body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
+        { title: "See the group", target: "#meetGrid", demo: ["meet", "meetGroup"], body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person in the list to see just their times." },
+        { title: "Overlap warnings", target: ".wtm-top", demo: ["meet"], body: "If an event later lands on time you marked available, a red warning appears right under this line, with a one-click fix." },
       ] },
     ],
     timeline: [
       { name: "Reading the timeline", steps: [
-        { title: "Now and next", target: ".tl-node.central .tl-card", body: "The centre is what's happening now, or next. The faded card to the right is the event after it; that day's all-day items sit under the line." },
-        { title: "Time labels", target: "#tlCountdown", body: "Left of the centre: time until it starts. Right of it: the gap until the next event. They turn orange under 15 minutes and red under 5." },
-        { title: "Look around", target: "#tlStage", body: "Drag the line, scroll the mouse wheel, or use the arrow keys to move between events. This mode is view-only." },
-        { title: "Change day", target: ".tl-nav", body: "◀ ▶ step through the days — free days say “Nothing planned”. Now jumps back to the present." },
+        { title: "Now and next", target: ".tl-node.central .tl-card", demo: ["tlEvents"], body: "The centre is what's happening now, or next. The faded card to the right is the event after it; that day's all-day items sit under the line." },
+        { title: "Time labels", target: "#tlCountdown", demo: ["tlEvents"], body: "Left of the centre: time until it starts. Right of it: the gap until the next event. They turn orange under 15 minutes and red under 5." },
+        { title: "Look around", target: "#tlStage", demo: ["tlEvents"], body: "Drag the line, scroll the mouse wheel, or use the arrow keys to move between events. This mode is view-only." },
+        { title: "Change day", target: ".tl-nav", demo: ["tlEvents"], body: "◀ ▶ step through the days — free days say “Nothing planned”. Now jumps back to the present." },
       ] },
       { name: "Work with AI", steps: [
-        { title: "Start working", target: "#tlWork", body: "Work opens an AI chat about the event in the centre. If the day has several items, you pick which one." },
-        { title: "Chat and files", target: "#wkPanel", body: "Ask for notes, an agenda, an email draft… Files the AI writes are attached to the event (📎 attaches your own text files) and show up in Calendar mode too." },
-        { title: "Split view", target: "#menuBtn", body: "☰ (or expand in the chat) puts the chat on the left and turns the timeline vertical. A Work button on another event starts another session." },
-        { title: "Several sessions", target: null, body: "Sessions run side by side — switch with the menu in the chat header. The trash icon deletes a chat, optionally with its files." },
+        { title: "Start working", target: ["#tlWork", "#tlWorkMenu"], demo: ["tlEvents", "workMenu"], body: "Work opens an AI chat about the event in the centre. If the day has several items, you pick which one, like here." },
+        { title: "Chat and files", target: "#wkPanel", demo: ["tlEvents", "chat"], body: "Ask for notes, an agenda, an email draft… Files the AI writes are attached to the event (📎 attaches your own text files) and show up in Calendar mode too." },
+        { title: "Split view", target: ["#menuBtn", "#wkPanel"], demo: ["tlEvents", "chat", "split"], body: "☰ (or expand in the chat) puts the chat on the left and turns the timeline vertical. A Work button on another event starts another session." },
+        { title: "Several sessions", target: ["#wkSwitch", "#wkSwitchMenu"], demo: ["tlEvents", "chat", "split", "sessions"], body: "Sessions run side by side — switch with this menu in the chat header. The trash icon deletes a chat, optionally with its files." },
       ] },
     ],
     hub: [
       { name: "Messages", steps: [
-        { title: "Sources", target: "#hubSources", body: "All sources shows every message, newest first. Click a source to see only it; drag across sources or Shift-click to combine several." },
-        { title: "Add a source", target: "#hubAddSrc", body: "Connect more apps (demo connections — they arrive empty)." },
-        { title: "Select messages", target: "#hubCols", body: "Click to select, drag across several, Shift-click a range, or Select all. New messages are tagged New." },
+        { title: "Sources", target: "#hubSources", demo: ["hubSide", "hubCombine"], body: "All sources shows every message, newest first. Click a source to see only it; drag across sources or Shift-click to combine several (two are combined here)." },
+        { title: "Add a source", target: ".hub-dlg-card", demo: ["hubSide", "addSource"], body: "Connect more apps (demo connections — they arrive empty)." },
+        { title: "Select messages", target: "#hubCols", demo: ["hubSel"], body: "Click to select, drag across several, Shift-click a range, or Select all. New messages are tagged New." },
       ] },
       { name: "Construct", steps: [
-        { title: "What to build", target: "#hcBuild", body: "Auto lets the AI decide between events and tasks; or force one kind." },
-        { title: "Construct with AI", target: "#hcFromSel", body: "Turns the selected messages into events and tasks. You can also add one by hand with + Event / + Task." },
-        { title: "Review", target: "#hcList", body: "Check what was built: edit, untick or remove anything that's off." },
-        { title: "Add to calendar", target: "#hcAdd", body: "Ticked events go on your calendar and tasks into your task list. Undo is right there." },
+        { title: "What to build", target: "#hcBuild", demo: ["hubSel"], body: "Auto lets the AI decide between events and tasks; or force one kind." },
+        { title: "Construct with AI", target: "#hcFromSel", demo: ["hubSel"], body: "Turns the selected messages into events and tasks. You can also add one by hand with + Event / + Task." },
+        { title: "Review", target: "#hcList", demo: ["hubItems", "hubEdit"], body: "Check what was built (these are examples): edit, untick or remove anything that's off." },
+        { title: "Add to calendar", target: "#hcAdd", demo: ["hubItems"], body: "Ticked events go on your calendar and tasks into your task list. Undo is right there." },
       ] },
     ],
   };
   const tour = { root: $("tour"), ring: $("tourRing"), card: $("tourCard"), sections: $("tourSections"), title: $("tourTitle"),
-    body: $("tourBody"), count: $("tourCount"), skip: $("tourSkip"), back: $("tourBack"), next: $("tourNext"), sec: 0, step: 0, set: null };
+    body: $("tourBody"), count: $("tourCount"), skip: $("tourSkip"), back: $("tourBack"), next: $("tourNext"), sec: 0, step: 0, set: null,
+    active: [], ui: null, pickId: null, timer: 0 };
+  const shown = (x) => { const r = x.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(x).visibility !== "hidden"; };
   function visibleTarget(sel) {
     if (!sel) return null;
-    const n = [...document.querySelectorAll(sel)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 2 && r.height > 2 && getComputedStyle(x).visibility !== "hidden"; });
-    return n || null;
+    return [...document.querySelectorAll(sel)].find(shown) || null;
   }
-  // Steps about Whentomeet open the example themselves (the tour overlay blocks clicking it);
-  // anything the tour opened is closed again when it moves on or ends.
-  function tourMeet(view) {
-    const m = meets[0];
-    if (!m) return;
-    if (wtm.active !== m.id) {
-      if (wtm.active) return; // the user already has one open: leave it alone
+
+  // ----- tour demos: whatever a step talks about is opened or shown for the user -----
+  // Each demo sets something up and returns how to undo it. Demos the next step also lists stay up;
+  // the rest are undone (newest first). Example data is marked demo: true, so it's never saved.
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  const shuffle = (arr) => arr.map((x) => [Math.random(), x]).sort((a, b) => a[0] - b[0]).map((x) => x[1]);
+  function setSidebar(open) {
+    if (sidebarClosed() === !open) return;
+    el.sidebar.classList.toggle(isMobile() ? "open" : "collapsed", isMobile() ? open : !open);
+    syncQuickAdd();
+    setTimeout(refreshMain, 220);
+  }
+  // The day of the visible week the tour uses: today if it's in view, else Monday.
+  const tourDay = () => { const t = startOfDay(new Date()); return t >= weekStart && t < addDays(weekStart, 7) ? t : addDays(weekStart, 1); };
+  function freeHour(day, hours = [10, 14, 11, 15, 9, 16, 13]) {
+    const at = (h) => new Date(day.getTime() + h * 3600000);
+    return hours.find((h) => !busyAt(at(h), at(h + 1))) ?? hours[0];
+  }
+  const scrollToHour = (h) => { el.weekBody.scrollTop = Math.max(0, hourPx() * (h - 1.5)); };
+  const tourEventBlock = () => tour.pickId && el.weekGrid.querySelector(`.event[data-id="${tour.pickId}"]`);
+  function addDemoEvent(ev) {
+    const x = { id: "tour-" + uid(), cal: defaultCalId(), location: "", allDay: false, ...ev, demo: true };
+    events.push(x);
+    return x;
+  }
+  const dropDemoEvents = () => { events = events.filter(notDemo); };
+  const inWeek = (ev) => { const s0 = parseISO(ev.start); return !ev.allDay && isVisible(ev) && s0 >= weekStart && s0 < addDays(weekStart, 7) && s0.getHours() >= 7 && s0.getHours() < 20; };
+
+  const DEMOS = {
+    sidebar() { if (!isMobile()) setSidebar(true); else setSidebar(true); return null; },
+    week() {
+      if (wtm.active && !tour.ui.meet) exitMeet();
+      if (view !== "week") setView("week");
+      if (isMobile()) setSidebar(false);
+      return null;
+    },
+    aiText() {
+      const before = el.aiInput.value;
+      el.aiInput.value = pick(["Lunch with Sam tomorrow at noon", "Move my gym session to Friday 6pm", "Dentist next Tuesday at 3"]);
+      autosize();
+      return () => { el.aiInput.value = before; autosize(); };
+    },
+    createPop() {
+      const day = tourDay(), h = freeHour(day);
+      draft = { start: toISO(new Date(day.getTime() + h * 3600000)), end: toISO(new Date(day.getTime() + (h + 1) * 3600000)) };
+      renderGrid();
+      scrollToHour(h);
+      showCreatePopover();
+      const ta = el.popover.querySelector(".pbar textarea");
+      if (ta) ta.value = pick(["Coffee with Jordan at Blue Bottle", "Study group in the library, 2 hours", "Call with Mom"]);
+      return () => { if (draft) draft.busy = false; hidePopover(); renderGrid(); };
+    },
+    eventPop() {
+      let ev = events.filter(inWeek).sort((a, b) => parseISO(a.start) - parseISO(b.start))[0];
+      if (!ev) {
+        const day = tourDay(), h = freeHour(day);
+        ev = addDemoEvent({ title: pick(["Coffee with Sam", "Team sync", "Dinner with friends"]), location: pick(["Blue Bottle", "Room 204", "Zoom"]),
+          start: toISO(new Date(day.getTime() + h * 3600000)), end: toISO(new Date(day.getTime() + (h + 1) * 3600000)) });
+        render();
+      }
+      tour.pickId = ev.id;
+      scrollToHour(parseISO(ev.start).getHours());
+      const block = tourEventBlock();
+      if (block) showPopover(ev, block);
+      return () => { hidePopover(); tour.pickId = null; if (ev.demo) { dropDemoEvents(); render(); } };
+    },
+    calEditor() {
+      const btn = el.calList.querySelector(".cal-edit");
+      if (!btn || !calendars.length) return null;
+      showCalEditor(calendars[0], btn);
+      return () => hidePopover();
+    },
+    tasks() {
+      if (tasks.length >= 2) return null;
+      for (const title of shuffle(["Read chapter 4", "Email the TA", "Buy groceries", "Update résumé", "Reply to Sam"]).slice(0, 3)) {
+        tasks.push({ id: "tour-" + uid(), title, demo: true });
+      }
+      renderTasks();
+      return () => { tasks = tasks.filter(notDemo); renderTasks(); };
+    },
+    taskDrag() {
+      const task = tasks[0];
+      const idx = Math.round((tourDay() - weekStart) / 86400000);
+      const zone = el.weekHead.querySelectorAll(".allday-zone")[idx];
+      if (!task || !zone) return null;
+      document.body.classList.add("task-dragging");
+      zone.classList.add("zone-hot");
+      const ghost = document.createElement("div");
+      ghost.className = "task-ghost";
+      ghost.innerHTML = `<div class="tg-title"></div><div class="tg-where"></div>`;
+      ghost.querySelector(".tg-title").textContent = task.title;
+      ghost.querySelector(".tg-where").textContent = `All day · ${shortDate(tourDay())}`;
+      const r = zone.getBoundingClientRect();
+      ghost.style.left = `${r.left + r.width / 2 + 14}px`;
+      ghost.style.top = `${r.top + r.height / 2 + 10}px`;
+      document.body.appendChild(ghost);
+      return () => {
+        ghost.remove();
+        document.body.classList.remove("task-dragging");
+        document.querySelectorAll(".zone-hot").forEach((n) => n.classList.remove("zone-hot"));
+      };
+    },
+    taskEvent() {
+      let ev = events.filter((x) => x.taskId && !x.done && inWeek(x))[0];
+      if (!ev) {
+        const title = pick(["Read chapter 4", "Email the TA", "Finish problem set"]);
+        const t = { id: "tour-" + uid(), title, demo: true };
+        tasks.push(t);
+        const day = tourDay(), h = freeHour(day, [15, 11, 14, 10, 16, 9]);
+        ev = addDemoEvent({ title, taskId: t.id, cal: tasksCalId(), start: toISO(new Date(day.getTime() + h * 3600000)), end: toISO(new Date(day.getTime() + (h + 1) * 3600000)) });
+        renderTasks();
+        render();
+      }
+      tour.pickId = ev.id;
+      scrollToHour(parseISO(ev.start).getHours());
+      return () => {
+        tour.pickId = null;
+        if (!ev.demo) return;
+        dropDemoEvents();
+        tasks = tasks.filter(notDemo);
+        renderTasks();
+        render();
+      };
+    },
+    wizard() {
+      if (wtm.active) return null;
+      openWizard();
+      return () => { if (wtm.wizard) closeWizard(); };
+    },
+    meet() {
+      if (wtm.active) return null; // the user already has one open: use that one
+      let m = meets[0];
+      if (!m) {
+        const days = [];
+        for (let d = addDays(startOfDay(new Date()), 1); days.length < 3; d = addDays(d, 1)) if (d.getDay() % 6) days.push(dayKey(d));
+        m = { id: "tour-" + uid(), name: "Pitch practice", mode: "dates", dates: days, days: [], start: 9, end: 17, members: [], mine: {}, createdAt: Date.now(), demo: true };
+        for (const c of CONTACTS.slice(0, 4)) m.members.push({ id: uid(), name: c.name, email: c.email, avail: randomAvail(m, c.email) });
+        meets.push(m);
+      }
       enterMeet(m.id);
-      tour.openedMeet = true;
+      return () => {
+        if (wtm.active === m.id) exitMeet();
+        if (m.demo) { meets = meets.filter(notDemo); renderMeetList(); }
+      };
+    },
+    meetGroup() {
+      if (!wtm.active || wtm.view === "group") return null;
+      setMeetView("group");
+      return () => { if (wtm.active) setMeetView("mine"); };
+    },
+
+    // Timeline: example events when there's not much coming up, plus an all-day item on that day.
+    tlEvents() {
+      const now = Date.now();
+      if (timelineItems().filter((it) => it.e > now).length < 2) {
+        const base = Math.ceil(now / (15 * MIN)) * 15 * MIN + 15 * MIN;
+        const [a, b, c] = shuffle([["Study group", "Library, 2nd floor"], ["Coffee with Sam", "Blue Bottle"], ["Gym", ""], ["Team sync", "Zoom"], ["Office hours", "Room 204"]]);
+        for (const [[title, location], off, len] of [[a, 0, 60], [b, 120, 45], [c, 240, 60]]) {
+          addDemoEvent({ title, location, start: toISO(new Date(base + off * MIN)), end: toISO(new Date(base + (off + len) * MIN)) });
+        }
+      }
+      const items = timelineItems();
+      const day = startOfDay(items.length ? items[imminentIndex(items)].s : new Date());
+      const hasAllDay = events.some((ev) => ev.allDay && isVisible(ev) && parseISO(ev.start) <= day && parseISO(ev.end) > day);
+      if (!hasAllDay) addDemoEvent({ title: pick(["Essay due", "Reading quiz", "Mom's birthday"]), ...allDaySpan(day) });
+      tl.auto = true; tl.emptyDay = null;
+      buildTimeline();
+      return () => { dropDemoEvents(); tl.auto = true; tl.emptyDay = null; buildTimeline(); renderWork(); };
+    },
+    workMenu() {
+      if (wk.workBtn.hidden || tl.options.filter((id) => id !== work.displayed).length < 2) return null;
+      openWorkMenu();
+      return () => closeWorkMenu();
+    },
+    chat() {
+      const id = tl.options[0];
+      if (!id) return null;
+      const before = { displayed: work.displayed, text: wk.text.value };
+      const real = sessions[id] && sessions[id].messages.length;
+      if (!real) demoSession(id, [
+        ["user", pick(["Can you draft an agenda for this?", "Make me a prep checklist for this.", "Write some notes I can bring."])],
+        ["assistant", "Sure — I put it in a file and attached it to the event. It covers the goals, a short timeline and what to bring.", "Prep notes.md"],
+      ]);
+      displaySession(id);
+      return () => {
+        dropDemoSessions();
+        const back = before.displayed && sessions[before.displayed] && sessions[before.displayed].open ? before.displayed : null;
+        work.displayed = back;
+        wk.text.value = before.text;
+        renderWork();
+      };
+    },
+    split() {
+      if (tlEl.root.classList.contains("expanded")) return null;
+      setExpanded(true);
+      return () => setExpanded(false);
+    },
+    sessions() {
+      const other = timelineItems().find((it) => it.e > Date.now() && it.ev.id !== work.displayed && !sessions[it.ev.id]);
+      if (other) demoSession(other.ev.id, [["user", "Remind me what I need for this."], ["assistant", "Here's a short checklist — attached as a file.", "Checklist.md"]], Date.now() - 60000);
+      renderSwitchMenu();
+      wk.menu.hidden = false;
+      renderWork();
+      return () => { wk.menu.hidden = true; if (other) { dropDemoSessions(other.ev.id); renderWork(); } };
+    },
+
+    // Connection Hub.
+    hubSide() { hubEl.root.classList.remove("side-hidden"); return null; },
+    hubCombine() {
+      const before = hub.views.slice();
+      hub.views = allSources().slice(0, 2).map((x) => x.id);
+      renderHub();
+      return () => { hub.views = before; renderHub(); };
+    },
+    addSource() { openAddSource(); return () => closeAddSource(); },
+    hubSel() {
+      if (hub.selected.size) return null;
+      const ids = viewMsgs().slice(0, 3).map((m) => m.id);
+      toggleMsgs(ids, true);
+      refreshSelection();
+      return () => { toggleMsgs(ids, false); refreshSelection(); };
+    },
+    hubItems() {
+      const at = (d, h, m = 0) => { const x = addDays(startOfDay(new Date()), d); x.setHours(h, m, 0, 0); return x; };
+      const evs = shuffle([
+        ["Pitch deck review with Alex", "Zoom", "Slack · #startup"], ["Office hours with Prof. Lee", "Room 204", "Canvas · ENTR 222"],
+        ["Team dinner", "Luigi's Pizzeria", "Text · Jordan"], ["Study session for the midterm", "Library, 2nd floor", "Email · Priya Shah"],
+        ["Customer interview", "Blue Bottle", "Email · Sam Chen"], ["Club meeting", "Student Union", "Slack · #general"],
+      ]).slice(0, 3);
+      const tks = shuffle([["Send slides to Priya", "Slack · #startup"], ["Reply to Sam about Friday", "Text · Sam"], ["Review the PR", "Email · GitHub"], ["Submit the reading response", "Canvas · ENTR 222"]]).slice(0, 2);
+      const items = [
+        ...evs.map(([title, location, from]) => {
+          const s0 = at(1 + Math.floor(Math.random() * 5), 9 + Math.floor(Math.random() * 8), pick([0, 30]));
+          return { type: "event", title, location, from, start: toISO(s0), end: toISO(new Date(s0.getTime() + pick([30, 60, 90]) * MIN)), allDay: false, cal: defaultCalId() };
+        }),
+        ...tks.map(([title, from]) => ({ type: "task", title, from, start: "", end: "", allDay: false, location: "", cal: defaultCalId() })),
+      ].map((it, i) => ({ ...it, id: "tour-" + uid(), keep: i !== 2, demo: true }));
+      hub.items = [...shuffle(items), ...hub.items];
+      renderConstructList();
+      return () => { hub.items = hub.items.filter(notDemo); if (!hub.items.some((x) => x.id === hub.editing)) hub.editing = null; renderConstructList(); };
+    },
+    hubEdit() {
+      const it = hub.items.find((x) => x.demo && x.type === "event");
+      if (!it) return null;
+      hub.editing = it.id;
+      renderConstructList();
+      return () => { if (hub.editing === it.id) { hub.editing = null; renderConstructList(); } };
+    },
+  };
+  // An example chat (and the file it "wrote") on an event, marked demo so it's never saved.
+  function demoSession(id, msgs, lastActive = Date.now()) {
+    const ev = eventById(id);
+    const now = Date.now();
+    sessions[id] = { eventId: id, title: ev ? ev.title : "", open: true, lastActive, demo: true,
+      messages: msgs.map(([role, text, file]) => ({ role, text, files: file ? [file] : undefined, at: now })) };
+    for (const [, , file] of msgs) {
+      if (!file) continue;
+      const title = ev ? ev.title : "this";
+      (attachments[id] || (attachments[id] = [])).push({ id: "tour-" + uid(), name: file, source: "ai", createdAt: now, updatedAt: now, demo: true,
+        content: `# ${file.replace(/\.md$/, "")} — ${title}\n\n- Goal: get the most out of ${title}\n- Bring: laptop, notes, questions\n- Follow up afterwards\n` });
     }
-    if (wtm.view !== view) setMeetView(view);
   }
-  function tourLeaveMeet() {
-    if (tour.openedMeet && wtm.active) exitMeet();
-    tour.openedMeet = false;
+  function dropDemoSessions(only = null) {
+    for (const [id, x] of Object.entries(sessions)) {
+      if (!x.demo || (only && id !== only)) continue;
+      delete sessions[id];
+      work.unread.delete(id);
+      if (work.displayed === id) work.displayed = null;
+    }
+    for (const [id, list] of Object.entries(attachments)) {
+      if (only && id !== only) continue;
+      const keep = list.filter(notDemo);
+      if (keep.length) attachments[id] = keep; else delete attachments[id];
+    }
+  }
+  function runDemos(keys) {
+    for (let i = tour.active.length - 1; i >= 0; i--) {
+      const d = tour.active[i];
+      if (keys.includes(d.key)) continue;
+      tour.active.splice(i, 1);
+      try { if (d.undo) d.undo(); } catch (err) { console.error(err); }
+    }
+    for (const key of keys) {
+      if (tour.active.some((d) => d.key === key)) continue;
+      let undo = null;
+      try { undo = DEMOS[key](); } catch (err) { console.error(err); }
+      tour.active.push({ key, undo });
+    }
+  }
+  // Where things were before the tour (view, date, sidebar…), put back when it closes.
+  function saveTourUI() {
+    tour.ui = { view, focus: new Date(focus), sidebarOpen: !sidebarClosed(), scroll: el.weekBody.scrollTop, meet: !!wtm.active,
+      hubSide: hubEl.root.classList.contains("side-hidden") };
+  }
+  function restoreTourUI() {
+    const u = tour.ui;
+    if (!u) return;
+    tour.ui = null;
+    if (mode === "hub") hubEl.root.classList.toggle("side-hidden", u.hubSide);
+    if (mode !== "calendar" || wtm.active) return;
+    if (view !== u.view) { view = u.view; saveViewPref(); }
+    goToDate(u.focus, false);
+    setSidebar(u.sidebarOpen);
+    render();
+    if (view === "week") el.weekBody.scrollTop = u.scroll;
+  }
+
+  function tourTargets(st) {
+    const list = typeof st.target === "function" ? st.target() : [].concat(st.target || []);
+    return list.map((x) => (typeof x === "string" ? visibleTarget(x) : x)).filter((n) => n && shown(n));
+  }
+  // Spotlight the element(s) this step is about (when on screen); the card goes on the other half.
+  function placeRing() {
+    const st = tour.set[tour.sec].steps[tour.step];
+    const ts = tourTargets(st);
+    tour.root.classList.toggle("dim", !ts.length);
+    tour.ring.hidden = !ts.length;
+    const card = tour.card;
+    card.classList.remove("at-top", "placed");
+    Object.assign(card.style, { left: "", top: "", bottom: "", transform: "" });
+    if (ts.length) {
+      const rs = ts.map((t) => t.getBoundingClientRect());
+      const r = { top: Math.min(...rs.map((x) => x.top)), left: Math.min(...rs.map((x) => x.left)),
+        right: Math.max(...rs.map((x) => x.right)), bottom: Math.max(...rs.map((x) => x.bottom)) };
+      const pad = 6;
+      const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
+      const w = Math.min(innerWidth - 8, r.right + pad) - left, h = Math.min(innerHeight - 8, r.bottom + pad) - top;
+      Object.assign(tour.ring.style, { top: `${top}px`, left: `${left}px`, width: `${w}px`, height: `${h}px` });
+      placeCard({ top, left, right: left + w, bottom: top + h });
+    }
+    // Demos can move focus into what they opened; keep the keyboard on the tour.
+    if (!tour.root.hidden && !tour.root.contains(document.activeElement)) tour.card.focus({ preventScroll: true });
+  }
+  // Put the card where it doesn't cover the spotlight: below or above it, else beside it.
+  function placeCard(r) {
+    const card = tour.card, cw = card.offsetWidth, ch = card.offsetHeight, gap = 14, m = 12;
+    const midX = Math.max(m, (innerWidth - cw) / 2);
+    const below = { left: midX, top: r.bottom + gap, ok: r.bottom + gap + ch <= innerHeight - m };
+    const above = { left: midX, top: r.top - gap - ch, ok: r.top - gap - ch >= m };
+    const sideTop = Math.min(Math.max(m, (r.top + r.bottom) / 2 - ch / 2), innerHeight - ch - m);
+    const right = { left: r.right + gap, top: sideTop, ok: r.right + gap + cw <= innerWidth - m };
+    const left = { left: r.left - gap - cw, top: sideTop, ok: r.left - gap - cw >= m };
+    const order = (r.top + r.bottom) / 2 < innerHeight * 0.55 ? [below, above] : [above, below];
+    const spot = [...order, right, left].find((x) => x.ok);
+    if (!spot) { card.classList.toggle("at-top", (r.top + r.bottom) / 2 >= innerHeight * 0.55); return; }
+    card.classList.add("placed");
+    Object.assign(card.style, { left: `${spot.left}px`, top: `${spot.top}px`, bottom: "auto", transform: "none" });
   }
   function showTourStep() {
     const sec = tour.set[tour.sec], st = sec.steps[tour.step];
-    (st.enter || tourLeaveMeet)();
+    runDemos(st.demo || []);
     tour.sections.innerHTML = "";
     tour.set.forEach((s, i) => {
       const b = document.createElement("button");
@@ -4511,29 +4851,26 @@
     tour.skip.hidden = lastSec;
     tour.back.disabled = tour.sec === 0 && tour.step === 0;
     tour.next.textContent = lastStep ? (lastSec ? "Done" : `Next: ${tour.set[tour.sec + 1].name}`) : "Next";
-    // Spotlight the element this step is about (when it's on screen).
-    const t = visibleTarget(st.target);
-    tour.root.classList.toggle("dim", !t);
-    tour.ring.hidden = !t;
-    let below = true;
-    if (t) {
-      const r = t.getBoundingClientRect(), pad = 6;
-      const top = Math.max(4, r.top - pad), left = Math.max(4, r.left - pad);
-      const w = Math.min(innerWidth - 8, r.right + pad) - left, h = Math.min(innerHeight - 8, r.bottom + pad) - top;
-      Object.assign(tour.ring.style, { top: `${top}px`, left: `${left}px`, width: `${w}px`, height: `${h}px` });
-      below = (r.top + r.bottom) / 2 < innerHeight * 0.55; // card goes on the other half of the screen
-    }
-    tour.card.classList.toggle("at-top", !below);
+    placeRing();
+    // Again once sidebars and panels have finished sliding.
+    clearTimeout(tour.timer);
+    tour.timer = setTimeout(() => { if (!tour.root.hidden) placeRing(); }, 320);
   }
   function openTour() {
     tour.set = TOURS[mode] || TOURS.calendar;
     tour.sec = 0; tour.step = 0;
     hidePopover();
+    saveTourUI();
     tour.root.hidden = false;
     showTourStep();
     tour.card.focus();
   }
-  const closeTour = () => { tour.root.hidden = true; tourLeaveMeet(); };
+  function closeTour() {
+    tour.root.hidden = true;
+    clearTimeout(tour.timer);
+    runDemos([]);
+    restoreTourUI();
+  }
   function tourMove(dir) {
     const sec = tour.set[tour.sec];
     if (dir > 0) {
@@ -4551,12 +4888,15 @@
   tour.next.addEventListener("click", () => tourMove(1));
   tour.back.addEventListener("click", () => tourMove(-1));
   tour.skip.addEventListener("click", () => { if (tour.sec < tour.set.length - 1) { tour.sec++; tour.step = 0; showTourStep(); } });
+  // Clicks and keys on the tour stay in the tour (so they don't close what it opened, or undo things).
+  tour.root.addEventListener("click", (e) => e.stopPropagation());
   tour.root.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeTour(); }
-    else if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); tourMove(1); }
-    else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); tourMove(-1); }
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); closeTour(); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); tourMove(1); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); tourMove(-1); }
   });
-  window.addEventListener("resize", () => { if (!tour.root.hidden) showTourStep(); });
+  window.addEventListener("resize", () => { if (!tour.root.hidden) placeRing(); });
 
   // ---------- wiring ----------
   $("todayBtn").onclick = () => goToDate(new Date());
