@@ -4886,7 +4886,10 @@
   function closeTour() {
     tour.root.hidden = true;
     clearTimeout(tour.timer);
-    if (tour.set === TOURS.welcome) { try { localStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ } }
+    if (tour.set === TOURS.welcome) {
+      try { localStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ }
+      openNotice();
+    }
     runDemos([]);
     restoreTourUI();
   }
@@ -4903,6 +4906,16 @@
     showTourStep();
   }
   $("helpBtn").addEventListener("click", (e) => { e.stopPropagation(); openTour(); });
+  // After the first-visit welcome: the AI is real, and please don't leak or burn through the key.
+  const notice = { root: $("notice"), ok: $("noticeOk") };
+  function openNotice() {
+    notice.root.hidden = false;
+    notice.ok.focus();
+  }
+  const closeNotice = () => { notice.root.hidden = true; };
+  notice.ok.addEventListener("click", (e) => { e.stopPropagation(); closeNotice(); });
+  notice.root.addEventListener("click", (e) => { e.stopPropagation(); if (e.target === notice.root) closeNotice(); });
+  notice.root.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Escape" || e.key === "Enter") { e.preventDefault(); closeNotice(); } });
   $("tourClose").addEventListener("click", closeTour);
   tour.next.addEventListener("click", () => tourMove(1));
   tour.back.addEventListener("click", () => tourMove(-1));

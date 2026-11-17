@@ -1022,6 +1022,10 @@ body[data-mode="hub"] .topbar-right { margin-left: auto; }
 .hub-add-src svg { fill: currentColor; }
 .hub-add-src:hover { background: #e8f0fe; }
 .hub-dlg-card { width: min(560px, 100%); }
+.notice-card { width: min(480px, 100%); }
+.notice-list { margin: 14px 0 0; padding-left: 22px; font-size: 14px; line-height: 1.5; color: var(--text); }
+.notice-list li + li { margin-top: 10px; }
+.notice-list b { color: #202124; font-weight: 500; }
 .hub-dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 .hub-dlg-head .confirm-text { margin-top: 4px; }
 .hub-dlg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }

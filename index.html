@@ -325,6 +325,18 @@
     </div>
   </div>
 
+  <!-- Shown once, right after the first-visit welcome -->
+  <div class="viewer notice" id="notice" hidden>
+    <div class="confirm-card notice-card" role="dialog" aria-modal="true" aria-labelledby="noticeTitle" tabindex="-1">
+      <div class="confirm-title" id="noticeTitle">Before you start</div>
+      <ol class="notice-list">
+        <li><b>The AI really works.</b> Typing in the input bar, Work chats and Construct all call a real AI model — go ahead and try it.</li>
+        <li><b>Please help protect the API key.</b> Every request uses a real, paid key. Don't share this link publicly or send requests in bulk, so it isn't leaked or used up.</li>
+      </ol>
+      <div class="confirm-actions"><span class="confirm-spacer"></span><button type="button" class="tour-btn primary" id="noticeOk">Got it</button></div>
+    </div>
+  </div>
+
   <!-- Confirm deleting an AI chat -->
   <div class="viewer confirm" id="confirmChat" hidden>
     <div class="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText" tabindex="-1">
