@@ -4462,6 +4462,15 @@
         { title: "Several sessions", target: ["#wkSwitch", "#wkSwitchMenu"], demo: ["tlEvents", "chat", "split", "sessions"], body: "Sessions run side by side — switch with this menu in the chat header. The trash icon deletes a chat, optionally with its files." },
       ] },
     ],
+    // First visit: the three modes, then the ? button.
+    welcome: [
+      { name: "Welcome", steps: [
+        { title: "Mode 1 of 3: Calendar", target: '.mode-tab[data-mode="calendar"]', body: "Your week and month. Add, move and change events by just typing what you want — the AI does the rest. Tasks and Whentomeet live here too." },
+        { title: "Mode 2 of 3: Action Timeline", target: '.mode-tab[data-mode="timeline"]', body: "What's happening now and what's next, on one line with countdowns. Click Work to get an AI's help with any event." },
+        { title: "Mode 3 of 3: Connection Hub", target: '.mode-tab[data-mode="hub"]', body: "Messages from Slack, email, Canvas and more in one place. Pick some and the AI turns them into events and tasks." },
+        { title: "Tour any mode", target: "#helpBtn", body: "Click ? whenever you like for a short tour of the mode you're in — it opens everything it explains for you." },
+      ] },
+    ],
     hub: [
       { name: "Messages", steps: [
         { title: "Sources", target: "#hubSources", demo: ["hubSide", "hubCombine"], body: "All sources shows every message, newest first. Click a source to see only it; drag across sources or Shift-click to combine several (two are combined here)." },
@@ -4836,7 +4845,8 @@
     const sec = tour.set[tour.sec], st = sec.steps[tour.step];
     runDemos(st.demo || []);
     tour.sections.innerHTML = "";
-    tour.set.forEach((s, i) => {
+    // (The welcome has a single section: no chips to pick from.)
+    if (tour.set.length > 1) tour.set.forEach((s, i) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "tour-sec" + (i === tour.sec ? " on" : "");
@@ -4850,14 +4860,15 @@
     const lastSec = tour.sec === tour.set.length - 1, lastStep = tour.step === sec.steps.length - 1;
     tour.skip.hidden = lastSec;
     tour.back.disabled = tour.sec === 0 && tour.step === 0;
-    tour.next.textContent = lastStep ? (lastSec ? "Done" : `Next: ${tour.set[tour.sec + 1].name}`) : "Next";
+    tour.next.textContent = lastStep ? (lastSec ? (tour.set === TOURS.welcome ? "Got it" : "Done") : `Next: ${tour.set[tour.sec + 1].name}`) : "Next";
     placeRing();
     // Again once sidebars and panels have finished sliding.
     clearTimeout(tour.timer);
     tour.timer = setTimeout(() => { if (!tour.root.hidden) placeRing(); }, 320);
   }
-  function openTour() {
-    tour.set = TOURS[mode] || TOURS.calendar;
+  const WELCOME_KEY = "nl-calendar-welcomed";
+  function openTour(set = mode) {
+    tour.set = TOURS[set] || TOURS.calendar;
     tour.sec = 0; tour.step = 0;
     hidePopover();
     saveTourUI();
@@ -4868,6 +4879,7 @@
   function closeTour() {
     tour.root.hidden = true;
     clearTimeout(tour.timer);
+    if (tour.set === TOURS.welcome) { try { localStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ } }
     runDemos([]);
     restoreTourUI();
   }
@@ -5057,5 +5069,6 @@
   renderMeetList();
   syncQuickAdd();
   setMode(mode);
+  try { if (!localStorage.getItem(WELCOME_KEY)) setTimeout(() => openTour("welcome"), 300); } catch { /* storage blocked: skip it */ }
   el.weekBody.scrollTop = 48 * 7.5; // start around 7:30am like Google Calendar
 })();
