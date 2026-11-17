@@ -361,6 +361,7 @@ body.task-dragging .allday-zone.zone-hot::after {
 .popover .pedit { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .popover .pinfo { min-width: 0; overflow-wrap: anywhere; }
 .popover .ptop { display: flex; justify-content: flex-end; margin: -8px -12px 0 0; }
+.popover .pdelete { color: #5f6368; }
 .popover .prow { display: flex; gap: 16px; align-items: flex-start; }
 .popover .swatch { width: 14px; height: 14px; border-radius: 4px; margin-top: 6px; flex-shrink: 0; }
 .popover .ptitle { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; }

@@ -397,6 +397,16 @@
     if (!ev.location) p.querySelector(".ploc").remove();
     p.querySelector("[data-close]").onclick = hidePopover;
     p.dataset.eventId = ev.id;
+    // Trash icon next to the close button, like Google.
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "icon-btn pdelete";
+    const what = ev.taskId ? "task" : "event";
+    del.setAttribute("aria-label", `Delete ${what}`);
+    del.title = `Delete ${what}`;
+    del.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20"><path d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>`;
+    del.onclick = (e) => { e.stopPropagation(); deleteEvent(ev.id); };
+    p.querySelector(".ptop").prepend(del);
     if (ev.taskId) {
       if (ev.done) p.querySelector(".ptitle").classList.add("done");
       const b = document.createElement("button");
@@ -1007,6 +1017,26 @@
       if (anchor) showPopover(ev, anchor); else hidePopover();
     }
     setStatus(`${done ? "Completed" : "Reopened"} “${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
+  }
+
+  // Delete from the popover. A task placed on the calendar is deleted as a task: all of its
+  // calendar entries and its line in the task list go (Google behaves the same way).
+  function deleteEvent(id) {
+    const ev = events.find((x) => x.id === id);
+    if (!ev) return;
+    pushUndo();
+    if (ev.taskId) {
+      events = events.filter((x) => x.taskId !== ev.taskId);
+      tasks = tasks.filter((t) => t.id !== ev.taskId);
+      saveTasks();
+      renderTasks();
+    } else {
+      events = events.filter((x) => x.id !== id);
+    }
+    saveEvents();
+    hidePopover();
+    render();
+    setStatus(`Deleted ${ev.taskId ? "task " : ""}“${escapeHTML(ev.title)}”. <button class="undo" type="button">Undo</button>`);
   }
 
   // ---------- task list (sidebar) ----------
