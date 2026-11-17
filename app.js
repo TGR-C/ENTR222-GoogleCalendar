@@ -4642,6 +4642,168 @@
     if (e.target.closest("[data-undo]")) { undo(); hubStatus("Undone — removed them from your calendar and task list."); }
   });
 
+  // ---------- Search and ask ----------
+  const searchUI = { root: $("calendarSearch"), button: $("searchBtn"), input: $("searchInput"),
+    dropdown: $("searchDropdown"), list: $("searchResults"), answer: $("searchAnswer") };
+  let searchRows = [], searchActive = -1, searchRequest = null;
+
+  // Local wall-clock boundaries keep these windows correct across DST transitions.
+  function searchFreeGaps(sourceEvents, now = new Date()) {
+    const timed = sourceEvents.filter((ev) => !ev.allDay).map((ev) => [parseISO(ev.start), parseISO(ev.end)])
+      .filter(([s, e]) => Number.isFinite(+s) && Number.isFinite(+e) && e > s);
+    return Array.from({ length: 15 }, (_, offset) => {
+      const day = addDays(startOfDay(now), offset);
+      const at = (h, m = 0) => { const d = startOfDay(day); d.setHours(h, m, 0, 0); return d; };
+      let lower = at(8), upper = at(22);
+      if (offset === 0) {
+        const rounded = new Date(now);
+        rounded.setMinutes(Math.ceil((now.getMinutes() + (now.getSeconds() || now.getMilliseconds() ? 1 : 0)) / 15) * 15, 0, 0);
+        if (rounded > lower) lower = rounded;
+      }
+      const busy = timed.filter(([s, e]) => s < upper && e > lower)
+        .map(([s, e]) => [new Date(Math.max(+s, +lower)), new Date(Math.min(+e, +upper))])
+        .sort((a, b) => a[0] - b[0]);
+      const gaps = [];
+      let cursor = lower;
+      const gap = (start, end) => { if (end - start >= 15 * 60000) gaps.push({ start: toISO(start), end: toISO(end) }); };
+      for (const [s, e] of busy) { if (s > cursor) gap(cursor, s); if (e > cursor) cursor = e; }
+      gap(cursor, upper);
+      return { date: dayKey(day), weekday: day.toLocaleDateString("en-US", { weekday: "long" }), gaps };
+    });
+  }
+  function openSearch() {
+    searchUI.root.hidden = false;
+    searchUI.button.setAttribute("aria-expanded", "true");
+    searchUI.input.focus();
+    renderSearch();
+  }
+  function closeSearch() {
+    searchRequest?.abort(); searchRequest = null;
+    searchUI.root.hidden = true;
+    searchUI.button.setAttribute("aria-expanded", "false");
+    searchUI.input.setAttribute("aria-expanded", "false");
+    searchUI.input.removeAttribute("aria-activedescendant");
+    searchUI.button.focus();
+  }
+  function searchWhen(ev) {
+    const start = parseISO(ev.start);
+    return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} · ${ev.allDay ? "All day" : fmtRange(start, parseISO(ev.end))}`;
+  }
+  function searchNavigate(start) {
+    closeSearch();
+    if (mode !== "calendar") setMode("calendar");
+    if (wtm.active) exitMeet();
+    if (!timeView()) setView("week");
+    goToDate(parseISO(start));
+    el.weekBody.scrollTop = Math.max(0, (parseISO(start).getHours() - 1) * hourPx());
+  }
+  function searchOpenEvent(id) {
+    const ev = events.find((item) => item.id === id);
+    if (!ev) return;
+    searchNavigate(ev.start);
+    const anchor = [...el.weekGrid.querySelectorAll("[data-id]")].find((node) => node.dataset.id === id) || searchUI.button;
+    showPopover(ev, anchor);
+  }
+  function searchOpenSlot(range) {
+    searchNavigate(range.start);
+    draft = { start: range.start, end: range.end };
+    renderGrid();
+    showCreatePopover();
+  }
+  function highlightSearch(index) {
+    searchActive = index;
+    [...searchUI.list.children].forEach((row, i) => row.setAttribute("aria-selected", String(i === index)));
+    if (index < 0) searchUI.input.removeAttribute("aria-activedescendant");
+    else {
+      searchUI.input.setAttribute("aria-activedescendant", `search-option-${index}`);
+      searchUI.list.children[index]?.scrollIntoView({ block: "nearest" });
+    }
+  }
+  function renderSearch() {
+    const query = searchUI.input.value.trim(), q = query.toLocaleLowerCase(), now = new Date();
+    searchUI.list.replaceChildren(); searchUI.answer.hidden = true;
+    searchUI.answer.replaceChildren(); highlightSearch(-1);
+    searchUI.dropdown.hidden = !query;
+    searchUI.input.setAttribute("aria-expanded", String(!!query));
+    if (!query) { searchRows = []; return; }
+    const matches = events.filter((ev) => [ev.title, ev.location, calOf(ev)?.name].some((v) => String(v || "").toLocaleLowerCase().includes(q)))
+      .sort((a, b) => {
+        const aPast = parseISO(a.end) <= now, bPast = parseISO(b.end) <= now;
+        return aPast !== bPast ? (aPast ? 1 : -1) : aPast ? parseISO(b.start) - parseISO(a.start) : parseISO(a.start) - parseISO(b.start);
+      }).slice(0, 8);
+    searchRows = [null, ...matches];
+    searchRows.forEach((ev, i) => {
+      const row = document.createElement("div");
+      row.className = "search-option"; row.id = `search-option-${i}`;
+      row.setAttribute("role", "option"); row.setAttribute("aria-selected", "false");
+      if (ev) {
+        const dot = document.createElement("span"); dot.className = "search-dot"; dot.style.background = colorOf(ev); row.append(dot);
+        const label = document.createElement("span"); label.textContent = ev.title;
+        const detail = document.createElement("span"); detail.className = "search-detail";
+        detail.textContent = `${searchWhen(ev)} · ${ev.location || calOf(ev)?.name || ""}`;
+        label.append(detail); row.append(label);
+      } else row.textContent = `✨ Ask: ${query}`;
+      row.addEventListener("mousedown", (e) => e.preventDefault());
+      row.addEventListener("click", (e) => { e.stopPropagation(); if (ev) searchOpenEvent(ev.id); else askCalendar(); });
+      searchUI.list.append(row);
+    });
+  }
+  async function askCalendar() {
+    const question = searchUI.input.value.trim();
+    if (!question) return;
+    searchRequest?.abort();
+    const request = new AbortController(); searchRequest = request;
+    const now = new Date(), from = addDays(startOfDay(now), -14), until = addDays(startOfDay(now), 61);
+    searchUI.answer.hidden = false; searchUI.answer.textContent = "Asking your calendar…";
+    searchUI.answer.setAttribute("aria-busy", "true");
+    try {
+      const response = await fetch("/api/ask", { method: "POST", signal: request.signal,
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question,
+          now: `${toISO(now)} (${now.toLocaleDateString(undefined, { weekday: "long" })})`, calendars,
+          events: events.filter((ev) => parseISO(ev.start) < until && parseISO(ev.end) > from)
+            .sort((a, b) => Math.abs(parseISO(a.start) - now) - Math.abs(parseISO(b.start) - now)).slice(0, 300),
+          free: searchFreeGaps(events, now) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+      if (searchRequest !== request) return;
+      searchUI.answer.textContent = typeof data.answer === "string" ? data.answer : "No answer returned.";
+      const chips = document.createElement("div"); chips.className = "search-chips";
+      const chip = (label, action) => { const b = document.createElement("button"); b.type = "button"; b.className = "search-chip"; b.textContent = label; b.onclick = (e) => { e.stopPropagation(); action(); }; chips.append(b); };
+      for (const id of Array.isArray(data.event_ids) ? data.event_ids : []) {
+        const ev = events.find((item) => item.id === id);
+        if (ev) chip(`${ev.title} · ${searchWhen(ev)}`, () => searchOpenEvent(id));
+      }
+      const timeRE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+      for (const range of Array.isArray(data.free_ranges) ? data.free_ranges : []) {
+        if (!range || !timeRE.test(range.start) || !timeRE.test(range.end) || parseISO(range.end) <= parseISO(range.start)) continue;
+        chip(searchWhen(range), () => searchOpenSlot(range));
+      }
+      searchUI.answer.append(chips);
+    } catch (err) {
+      if (searchRequest === request && err.name !== "AbortError") searchUI.answer.textContent = err.message;
+    } finally {
+      if (searchRequest === request) { searchRequest = null; searchUI.answer.setAttribute("aria-busy", "false"); }
+    }
+  }
+  searchUI.button.addEventListener("click", () => searchUI.root.hidden ? openSearch() : closeSearch());
+  $("searchClose").addEventListener("click", closeSearch);
+  searchUI.root.addEventListener("click", (e) => e.stopPropagation());
+  searchUI.input.addEventListener("input", () => { searchRequest?.abort(); searchRequest = null; searchUI.answer.setAttribute("aria-busy", "false"); renderSearch(); });
+  searchUI.input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.isComposing) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (searchRows.length) highlightSearch((searchActive + (e.key === "ArrowDown" ? 1 : -1) + searchRows.length) % searchRows.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const ev = searchRows[searchActive]; if (ev) searchOpenEvent(ev.id); else askCalendar();
+    } else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !searchUI.root.hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeSearch(); }
+  }, true);
+
   // ---------- Booking pages ----------
   // "Book time with me" pages, like Calendly or Google's appointment schedules: a length, weekdays and
   // hours. The link is this app's own address + #book/<id>; opening it shows the page people book from,
@@ -5931,6 +6093,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !cf.root.hidden) { closeConfirm(); return; }
     if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
+    if (e.key === "/" && !isTyping(e.target) && !e.ctrlKey && !e.metaKey && !e.altKey && !dragging()) { e.preventDefault(); openSearch(); return; }
     if (mode === "hub") return; // the hub has no calendar shortcuts
     if (mode === "timeline") {
       // View only: no undo/redo or calendar shortcuts here.

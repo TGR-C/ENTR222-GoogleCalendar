@@ -56,6 +56,21 @@ when hovering over the relevant area.
 
 New visitors start with sample events, tasks, calendars, and an example Whentomeet ("Pitch practice").
 
+## Search and ask
+
+Click the magnifier or press **/** to search titles, locations and calendar names, including hidden
+calendars. Results show upcoming events first, then past events (up to eight). Use arrow keys and Enter
+to open a result; Escape closes search. Month/year views switch to week when opening an event.
+
+The first row, **✨ Ask**, or Enter without a highlighted result sends a read-only question to
+`/api/ask`. Answers include clickable event and free-time chips; free-time chips open a draft for review.
+To change events with AI, use **Add or edit events**. The server requires `ANTHROPIC_API_KEY`.
+Questions include up to 300 events overlapping the past 14 days through the next 60 days. Availability
+is computed locally for today through 14 days ahead, 08:00–22:00, across all calendars; all-day events
+are ignored. Overlapping busy times are merged, gaps under 15 minutes are omitted, and today's start
+is rounded up to the next quarter hour. Local wall-clock boundaries preserve daylight-saving dates.
+The search overlay and answer panel use theme tokens and move below the toolbar on phones.
+
 ## Whentomeet (find a time with others)
 
 - The people icon next to the mini calendar starts a new Whentomeet. The mini calendar turns into a short
