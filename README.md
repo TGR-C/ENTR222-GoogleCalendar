@@ -38,11 +38,11 @@ You can also work with the grid directly:
 Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "what's now / what's next" view:
 
 - One horizontal line. The **centre node** is the imminent event (happening now, or the next to start) with
-  that day's all-day items underneath; the **right node** is the next event, fading out toward the edge.
+  that day's all-day items underneath; the **right node** is the next event; both edges fade out (the previous event shows faded on the left).
 - Left of the centre: time until the centre event starts ("Now" while it's on). Right of the centre: the gap
   between the end of the centre event and the start of the next. Green normally, **orange under 15 min**,
   **red under 5 min** (overlaps show in red).
-- **Drag the line** (or use ← / → or horizontal scroll) to look further ahead; the ◀ ▶ buttons at the far left
+- **Drag the line** (or use ← / → or horizontal scroll) to look further ahead; the ◀ ▶ buttons at the top middle (around the date)
   jump to the previous / next day with events; **Now** returns to the present.
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to
   Calendar to change anything. The mode is remembered between visits.

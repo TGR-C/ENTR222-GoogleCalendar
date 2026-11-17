@@ -1870,7 +1870,7 @@
       // Left of the central node: time until it starts (from now).
       const now = new Date();
       const cd = tlEl.countdown;
-      cd.style.left = `${Math.max(190, cx - tl.spacing / 2)}px`;
+      cd.style.left = `${Math.max(70, cx - tl.spacing / 2)}px`;
       if (now < focusIt.s) {
         const ms = focusIt.s - now;
         cd.className = `tl-countdown tl-pill ${tone(ms)}`;

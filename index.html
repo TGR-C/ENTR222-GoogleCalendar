@@ -133,17 +133,16 @@
       <div class="tl-track" id="tlTrack"></div>
       <div class="tl-countdown" id="tlCountdown" aria-live="polite"></div>
       <div class="tl-allday" id="tlAllday"></div>
+      <!-- Top middle: previous day ◀  date  ▶ next day, with "Now" underneath -->
       <div class="tl-nav">
+        <button class="tl-navbtn" id="tlPrev" type="button" aria-label="Previous day" title="Previous day">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M16 5v14L5 12z"/></svg>
+        </button>
         <div class="tl-daylabel" id="tlDayLabel"></div>
+        <button class="tl-navbtn" id="tlNext" type="button" aria-label="Next day" title="Next day">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
+        </button>
         <button class="tl-now" id="tlNow" type="button" hidden>Now</button>
-        <div class="tl-navbtns">
-          <button class="tl-navbtn" id="tlPrev" type="button" aria-label="Previous day" title="Previous day">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M16 5v14L5 12z"/></svg>
-          </button>
-          <button class="tl-navbtn" id="tlNext" type="button" aria-label="Next day" title="Next day">
-            <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 5v14l11-7z"/></svg>
-          </button>
-        </div>
       </div>
       <div class="tl-empty" id="tlEmpty" hidden></div>
       <div class="tl-hint">Drag the line to look ahead · view only — switch to Calendar to make changes</div>
