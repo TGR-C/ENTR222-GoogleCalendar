@@ -94,7 +94,7 @@ Calendars / tags ("calendars" in the context; each has id, name, color, visible)
 - calendar delete (existing id): only when the user explicitly asks; this also deletes the calendar's events.
 - "Change an event's color" means moving it to a calendar with that color. If no calendar has that color, ask which calendar to use, unless the user asked to make a new tag.
 - An event can be put in a calendar created in the same response by using the new calendar's name. If the user asks to schedule an existing task, create an event with the task's title and leave the task alone unless they say it is done.
-- If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration.
+- If "selected_slot" is present, the user clicked that slot on the calendar to create a new event: create it at exactly that start and end unless the description explicitly gives a different time, date, or duration. If the slot also has a title, location, or calendar the user already filled in, use them unless the description says otherwise.
 - If "selected_event_id" is present, the user opened that event and is describing a change to it: "it", "this", or a bare instruction ("move to 3pm", "make it longer", "delete") refers to that event. Only touch other events if the request clearly names them.
 - If the request is ambiguous (e.g. several events match and you can't tell which) or is not about the calendar, return no actions and ask a short question in reply.
 - reply: one short, friendly sentence saying what you did.`;
@@ -124,7 +124,14 @@ export default async function handler(req, res) {
     now,
     visible_week: { start: weekStart, end: weekEnd },
     ...(slot && TIME_RE.test(slot.start) && TIME_RE.test(slot.end)
-      ? { selected_slot: { start: slot.start, end: slot.end } }
+      ? {
+        selected_slot: {
+          start: slot.start, end: slot.end,
+          ...Object.fromEntries(["title", "location", "calendar"]
+            .filter((k) => typeof slot[k] === "string" && slot[k].trim())
+            .map((k) => [k, slot[k].trim().slice(0, 200)])),
+        },
+      }
       : {}),
     ...(typeof eventId === "string" && Array.isArray(events) && events.some((e) => e && e.id === eventId)
       ? { selected_event_id: eventId }

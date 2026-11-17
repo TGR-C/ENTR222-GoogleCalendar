@@ -11,8 +11,8 @@ You can also work with the grid directly:
 
 - **Drag** an event to move it (to another time or day); drag its **bottom edge** to change its length.
 - **Click** an empty slot (or drag across a range) to create an event: a small popup asks you to
-  describe it, and Claude fills in the title/details using the slot you picked — or switch the popup to
-  **Title** to just type a title and save (month view: saves as an all-day event).
+  describe it, and Claude fills in the title/details using the slot you picked — or fill in the title,
+  location, and calendar yourself (like the event popup) and press Save (month view: saves as all-day).
 - **Click an event** to see its details and describe a change right there ("move to 3pm",
   "make it 2 hours", "rename to Design review", "delete it"); Claude knows which event you mean.
 - **Month view** (switch from the top-right menu): drag an event to another day to move it, click an empty
@@ -46,6 +46,7 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
   between the end of the centre event and the start of the next. Green normally, **orange under 15 min**,
   **red under 5 min** (overlaps show in red).
 - **Drag the line** (or use ← / → or horizontal scroll) to look further ahead; the ◀ ▶ buttons at the top middle (around the date)
+  step one day at a time — days with nothing planned show a "Nothing planned" card (plus any all-day items);
   jump to the previous / next day with events; **Now** returns to the present.
 - Shows only events from visible calendars, skips checked-off tasks, and allows no edits — switch back to
   Calendar to change anything. The mode is remembered between visits.

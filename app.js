@@ -338,6 +338,7 @@
   }
 
   // Temporary block shown while picking a slot for click-to-create.
+  const draftColor = () => COLORS[(calById(draft && draft.cal) || calById(defaultCalId())).color] || COLORS.peacock;
   function draftEl() {
     const s = parseISO(draft.start), e = parseISO(draft.end);
     const top = s.getHours() * 60 + s.getMinutes();
@@ -348,8 +349,9 @@
     div.style.height = `calc(var(--hour) * ${mins / 60} - 2px)`;
     div.style.left = "1px";
     div.style.width = "calc(100% - 10px)";
-    div.style.background = COLORS[calById(defaultCalId()).color] || COLORS.peacock;
-    div.innerHTML = `<div class="etitle">(No title)</div><div class="etime"></div>`;
+    div.style.background = draftColor();
+    div.innerHTML = `<div class="etitle"></div><div class="etime"></div>`;
+    div.querySelector(".etitle").textContent = draft.title || "(No title)";
     div.querySelector(".etime").textContent = fmtRange(s, e);
     return div;
   }
@@ -457,8 +459,9 @@
         <div class="pinfo"><button type="button" class="pcal" title="Change calendar"></button></div></div>`;
     p.querySelector(".pcal").textContent = (calOf(ev) || {}).name || "";
     // The colour square and the calendar name both open the calendar picker.
-    p.querySelector(".swatch-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev, e.currentTarget); });
-    p.querySelector(".pcal").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev, e.currentTarget); });
+    const pick = (id) => setEventCalendar(ev, id);
+    p.querySelector(".swatch-btn").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev.cal, e.currentTarget, pick); });
+    p.querySelector(".pcal").addEventListener("click", (e) => { e.stopPropagation(); toggleCalMenu(ev.cal, e.currentTarget, pick); });
     p.querySelector(".ptitle").textContent = ev.title || "(No title)";
     const days = Math.round((startOfDay(e) - startOfDay(s)) / 86400000);
     p.querySelector(".pwhen").textContent = !ev.allDay ? `${dayStr} · ${fmtRange(s, e)}`
@@ -539,88 +542,113 @@
   }
 
   // Click-to-create: the popover only asks for a description; Claude fills in the rest.
-  const CREATE_MODE_KEY = "nl-calendar-create-mode";
+  const POP_PIN = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>`;
+  const POP_CAL = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>`;
+
+  // Click-to-create: laid out like the event popover — fill in title / location / calendar and Save,
+  // or describe the event to the AI underneath (it also sees whatever was filled in).
   function showCreatePopover() {
     const s = parseISO(draft.start), e = parseISO(draft.end);
     const dayStr = s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    if (!draft.cal || !calById(draft.cal)) draft.cal = defaultCalId();
     const p = el.popover;
     p.innerHTML = `${CLOSE_BTN}
-      <div class="pnew-when"></div>
-      <div class="pnew-modes" role="tablist" aria-label="How to create">
-        <button type="button" role="tab" data-cmode="ai">✨ Describe</button>
-        <button type="button" role="tab" data-cmode="title">Title</button>
-      </div>
-      <div class="pnew-pane" data-pane="ai"></div>
-      <form class="pnew-pane pnew-title" data-pane="title" autocomplete="off">
-        <input type="text" class="pnew-title-input" maxlength="200" placeholder="Add title" aria-label="Title">
-        <div class="pnew-title-row">
-          <span class="pnew-title-hint"></span>
-          <button type="submit" class="pnew-save">Save</button>
-        </div>
+      <form class="pnew-manual" autocomplete="off">
+        <div class="prow"><div class="picon"><button type="button" class="swatch swatch-btn" aria-label="Choose calendar" title="Choose calendar"></button></div>
+          <div class="pinfo"><input class="pnew-title-input" type="text" maxlength="200" placeholder="Add title" aria-label="Title">
+            <div class="pwhen"></div></div></div>
+        <div class="prow ploc-row"><div class="picon">${POP_PIN}</div>
+          <div class="pinfo"><input class="pnew-field" type="text" maxlength="200" placeholder="Add location" aria-label="Location"></div></div>
+        <div class="prow pcal-row"><div class="picon">${POP_CAL}</div>
+          <div class="pinfo"><button type="button" class="pcal" title="Choose calendar"></button></div></div>
+        <div class="pnew-actions"><button type="submit" class="pnew-save">Save</button></div>
       </form>`;
-    // Month view picks a day, not a time.
-    p.querySelector(".pnew-when").textContent = draft.dayOnly ? dayStr : `${dayStr} · ${fmtRange(s, e)}`;
+    // Month view picks a day, not a time: a typed title saves as all-day; the AI reads a time from the text.
+    p.querySelector(".pwhen").textContent = draft.dayOnly ? `${dayStr} · All day` : `${dayStr} · ${fmtRange(s, e)}`;
     p.querySelector("[data-close]").onclick = () => { if (draft) draft.busy = false; hidePopover(); };
+    const form = p.querySelector(".pnew-manual");
+    const titleInput = form.querySelector(".pnew-title-input");
+    const locInput = form.querySelector(".pnew-field");
+    const swatch = form.querySelector(".swatch-btn");
+    const calBtn = form.querySelector(".pcal");
     const slot = { start: draft.start, end: draft.end, dayOnly: !!draft.dayOnly };
+    titleInput.value = draft.title || "";
+    locInput.value = draft.location || "";
 
-    // Option 1: describe it to the AI.
-    const bar = aiBar({
-      placeholder: "Describe the event",
-      hint: draft.dayOnly
-        ? "Include a time, e.g. “Dinner with Sam at 7pm” (defaults to 9am)"
-        : "e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”",
-      busyText: "Creating…",
-      onSubmit: async (text) => {
-        if (draft) draft.busy = true; // keep the placeholder while the request runs
-        try { return await popoverRequest(text, { slot: { start: slot.start, end: slot.end } }); }
-        finally { if (draft) draft.busy = false; }
-      },
+    const paintCal = () => {
+      const cal = calById(draft.cal);
+      swatch.style.background = COLORS[cal.color] || COLORS.peacock;
+      calBtn.textContent = cal.name;
+      document.querySelectorAll(".draft").forEach((d) => { d.style.background = COLORS[cal.color] || COLORS.peacock; });
+    };
+    paintCal();
+    const pickCal = (id) => { if (draft) draft.cal = id; p.querySelector(".cal-menu")?.remove(); paintCal(); };
+    swatch.addEventListener("click", (ev) => { ev.stopPropagation(); toggleCalMenu(draft.cal, swatch, pickCal, { allowNew: false }); });
+    calBtn.addEventListener("click", (ev) => { ev.stopPropagation(); toggleCalMenu(draft.cal, calBtn, pickCal, { allowNew: false }); });
+    // Show the typed title on the placeholder block as you type.
+    titleInput.addEventListener("input", () => {
+      if (!draft) return;
+      draft.title = titleInput.value;
+      document.querySelectorAll(".draft").forEach((d) => {
+        const t = d.querySelector(".etitle") || d;
+        t.textContent = titleInput.value.trim() || "(No title)";
+      });
     });
-    p.querySelector('[data-pane="ai"]').appendChild(bar.wrap);
+    locInput.addEventListener("input", () => { if (draft) draft.location = locInput.value; });
 
-    // Option 2: just type a title (no AI).
-    const form = p.querySelector(".pnew-title");
-    const titleInput = form.querySelector("input");
-    const calName = (calById(defaultCalId()) || {}).name || "";
-    form.querySelector(".pnew-title-hint").textContent = (slot.dayOnly ? "All-day event" : fmtRange(s, e)) + (calName ? ` · ${calName}` : "");
     form.addEventListener("submit", (ev) => {
       ev.preventDefault();
-      const title = titleInput.value.trim();
-      if (!title) { titleInput.focus(); return; }
+      if (!draft) return;
       const span = slot.dayOnly ? allDaySpan(s) : { start: slot.start, end: slot.end, allDay: false };
-      const created = { id: uid(), title, cal: defaultCalId(), location: "", ...span };
+      const created = {
+        id: uid(), title: titleInput.value.trim() || "(No title)", cal: draft.cal,
+        location: locInput.value.trim(), ...span,
+      };
       pushUndo();
       events.push(created);
       saveEvents();
-      if (draft) { draft.busy = false; draft = null; }
+      draft.busy = false;
+      draft = null;
       el.popover.hidden = true;
       flashIds = new Set([created.id]);
       render();
       flashIds = new Set();
-      setStatus(`Created “${escapeHTML(title)}”. <button class="undo" type="button">Undo</button>`);
+      setStatus(`Created “${escapeHTML(created.title)}”. <button class="undo" type="button">Undo</button>`);
     });
-    titleInput.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); }
-      else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); if (draft) draft.busy = false; hidePopover(); }
-    });
+    for (const input of [titleInput, locInput]) {
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); form.requestSubmit(); }
+        else if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); if (draft) draft.busy = false; hidePopover(); }
+      });
+    }
 
-    // Switch between the two; remember the last one used.
-    const setCMode = (m, focus = true) => {
-      try { localStorage.setItem(CREATE_MODE_KEY, m); } catch { /* ignore */ }
-      p.querySelectorAll("[data-cmode]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.cmode === m)));
-      p.querySelectorAll("[data-pane]").forEach((pane) => { pane.hidden = pane.dataset.pane !== m; });
-      if (focus && FINE_POINTER) (m === "title" ? titleInput : bar.input).focus(); // don't pop the keyboard up on phones
-    };
-    p.querySelectorAll("[data-cmode]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); setCMode(b.dataset.cmode); }));
-    let start = "ai";
-    try { if (localStorage.getItem(CREATE_MODE_KEY) === "title") start = "title"; } catch { /* ignore */ }
+    // …or describe it to the AI (any fields already filled in are passed along).
+    const bar = aiBar({
+      placeholder: "Or describe it",
+      hint: draft.dayOnly
+        ? "e.g. “Dinner with Sam at 7pm” — include a time (defaults to 9am)"
+        : "e.g. “Coffee with Jordan at Blue Bottle” or “Dentist, 30 min”",
+      busyText: "Creating…",
+      onSubmit: async (text) => {
+        if (draft) draft.busy = true; // keep the placeholder while the request runs
+        const filled = {
+          start: slot.start, end: slot.end,
+          title: titleInput.value.trim(), location: locInput.value.trim(),
+          calendar: (calById(draft && draft.cal) || {}).name || "",
+        };
+        try { return await popoverRequest(text, { slot: filled }); }
+        finally { if (draft) draft.busy = false; }
+      },
+    });
+    bar.wrap.classList.add("pedit");
+    p.appendChild(bar.wrap);
 
     p.hidden = false;
-    setCMode(start, false);
     const anchor = document.querySelector(".draft");
     if (anchor) placePopover(anchor);
-    setCMode(start);
+    if (FINE_POINTER) titleInput.focus(); // don't pop the keyboard up on phones
   }
+
 
 
   // ---------- AI command ----------
@@ -1057,7 +1085,8 @@
       if (showDraft) {
         const dc = document.createElement("div");
         dc.className = "mchip mdraft draft";
-        dc.textContent = "(No title)";
+        dc.textContent = draft.title || "(No title)";
+        dc.style.background = draftColor();
         list.appendChild(dc);
       }
     }
@@ -1710,7 +1739,8 @@
   }
 
   // Calendar picker inside the event popover.
-  function toggleCalMenu(ev, anchor) {
+  // Calendar picker inside a popover. onPick(calendarId) is called with the choice.
+  function toggleCalMenu(currentId, anchor, onPick, { allowNew = true } = {}) {
     const p = el.popover;
     const open = p.querySelector(".cal-menu");
     if (open) { open.remove(); return; }
@@ -1721,19 +1751,21 @@
       const b = document.createElement("button");
       b.type = "button";
       b.setAttribute("role", "menuitemradio");
-      b.setAttribute("aria-checked", String(c.id === ev.cal));
-      b.innerHTML = `<span class="cm-dot"></span><span class="cm-name"></span><span class="cm-check">${c.id === ev.cal ? CHECK_ICON : ""}</span>`;
+      b.setAttribute("aria-checked", String(c.id === currentId));
+      b.innerHTML = `<span class="cm-dot"></span><span class="cm-name"></span><span class="cm-check">${c.id === currentId ? CHECK_ICON : ""}</span>`;
       b.querySelector(".cm-dot").style.background = COLORS[c.color] || COLORS.peacock;
       b.querySelector(".cm-name").textContent = c.name + (c.visible === false ? " (hidden)" : "");
-      b.onclick = (e) => { e.stopPropagation(); setEventCalendar(ev, c.id); };
+      b.onclick = (e) => { e.stopPropagation(); onPick(c.id); };
       menu.appendChild(b);
     }
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "cm-new";
-    add.textContent = "+ New calendar";
-    add.onclick = (e) => { e.stopPropagation(); showCalEditor(null, el.calAdd); };
-    menu.appendChild(add);
+    if (allowNew) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "cm-new";
+      add.textContent = "+ New calendar";
+      add.onclick = (e) => { e.stopPropagation(); showCalEditor(null, el.calAdd); };
+      menu.appendChild(add);
+    }
     p.appendChild(menu);
     const pr = p.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
     menu.style.left = `${Math.max(8, ar.left - pr.left)}px`;
@@ -1832,7 +1864,8 @@
     allday: $("tlAllday"), dayLabel: $("tlDayLabel"), prev: $("tlPrev"), next: $("tlNext"),
     empty: $("tlEmpty"), now: $("tlNow"),
   };
-  const tl = { items: [], focus: 0, auto: true, drag: null, spacing: 300 };
+  // seq = the events plus, when a day with nothing planned is being viewed, a placeholder for that day.
+  const tl = { items: [], seq: [], focus: 0, focusId: null, emptyDay: null, auto: true, drag: null, spacing: 300 };
   const MIN = 60000;
   const PIN_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>`;
 
@@ -1863,10 +1896,30 @@
       : d.toLocaleDateString(undefined, { weekday: "long" });
   };
 
+  function makeSeq() {
+    const seq = tl.items.slice();
+    if (tl.emptyDay) {
+      const ds = startOfDay(tl.emptyDay);
+      const i = seq.findIndex((it) => it.s >= ds);
+      seq.splice(i === -1 ? seq.length : i, 0, { virtual: true, s: ds, e: ds });
+    }
+    return seq;
+  }
+  const seqKey = (it) => (it.virtual ? "virtual" : it.ev.id);
+
   function buildTimeline() {
     tl.items = timelineItems();
-    if (tl.auto) tl.focus = imminentIndex(tl.items);
-    tl.focus = clamp(tl.focus, 0, Math.max(0, tl.items.length - 1));
+    if (tl.auto) {
+      // Following "now": the imminent event, or today as an empty day if there's nothing at all.
+      tl.emptyDay = tl.items.length ? null : startOfDay(new Date());
+      tl.focusId = tl.items.length ? tl.items[imminentIndex(tl.items)].ev.id : "virtual";
+    } else if (tl.focusId !== "virtual" && !tl.items.some((it) => it.ev.id === tl.focusId)) {
+      // The focused event is gone (deleted, hidden, or checked off): fall back to its day.
+      tl.emptyDay = tl.emptyDay || startOfDay(new Date());
+      tl.focusId = "virtual";
+    }
+    tl.seq = makeSeq();
+    tl.focus = Math.max(0, tl.seq.findIndex((it) => seqKey(it) === tl.focusId));
     drawTimeline();
   }
 
@@ -1909,6 +1962,25 @@
     node.querySelector(".tl-tagname").textContent = cal.name || "";
     return node;
   }
+  // Centre card for a day with nothing planned.
+  function tlEmptyNode(it, x, central, hasAllDay) {
+    const node = document.createElement("div");
+    node.className = "tl-node tl-free" + (central ? " central" : "");
+    node.style.left = `${x}px`;
+    node.style.setProperty("--c", "#9aa0a6");
+    node.innerHTML = `
+      <div class="tl-card">
+        <div class="tl-time"></div>
+        <div class="tl-title">Nothing planned</div>
+        <div class="tl-freenote"></div>
+      </div>
+      <div class="tl-dot"></div>`;
+    node.querySelector(".tl-time").textContent = it.s.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    node.querySelector(".tl-freenote").textContent = !tl.items.length
+      ? "Your calendar is empty — switch to Calendar mode to add events."
+      : hasAllDay ? "No timed events — all-day items are below." : "This day is free.";
+    return node;
+  }
 
   function tlGap(a, b, x) {
     const gap = b.s - a.e;
@@ -1931,34 +2003,41 @@
     tlEl.track.innerHTML = "";
     tlEl.track.style.transition = "none";
     tlEl.track.style.transform = "";
-    const has = tl.items.length > 0;
-    tlEl.empty.hidden = has;
+    tlEl.empty.hidden = true;
     tlEl.now.hidden = tl.auto;
-    const focusIt = has ? tl.items[tl.focus] : null;
+    const seq = tl.seq;
+    const focusIt = seq[tl.focus];
     const refDay = focusIt ? focusIt.s : new Date();
 
-    // Day label + day buttons.
+    // Day label (days can be stepped one at a time, including days with nothing planned).
     tlEl.dayLabel.innerHTML = `<b></b><span></span>`;
     tlEl.dayLabel.querySelector("b").textContent = dayName(refDay);
     tlEl.dayLabel.querySelector("span").textContent = refDay.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-    tlEl.prev.disabled = !has || tl.items.findIndex((it) => startOfDay(it.s) < startOfDay(refDay)) === -1;
-    tlEl.next.disabled = !has || tl.items.findIndex((it) => startOfDay(it.s) > startOfDay(refDay)) === -1;
+    tlEl.prev.disabled = false;
+    tlEl.next.disabled = false;
 
-    if (!has) {
-      tlEl.empty.textContent = "Nothing scheduled. Switch to Calendar mode to add events.";
-      tlEl.countdown.innerHTML = "";
+    // That day's all-day items (checked-off tasks are left out).
+    const ds = startOfDay(refDay), de = addDays(ds, 1);
+    const allDay = events.filter((ev) => ev.allDay && isVisible(ev) && !(ev.taskId && ev.done)
+      && parseISO(ev.start) < de && parseISO(ev.end) > ds);
+
+    // Nodes near the viewport (a few extra on each side so dragging has something to show).
+    for (let i = Math.max(0, tl.focus - 3); i <= Math.min(seq.length - 1, tl.focus + 4); i++) {
+      const x = cx + (i - tl.focus) * tl.spacing;
+      const it = seq[i];
+      tlEl.track.appendChild(it.virtual ? tlEmptyNode(it, x, i === tl.focus, allDay.length > 0) : tlNode(it, x, i === tl.focus, refDay));
+      // Gap labels from the central node onward (left of centre is the countdown).
+      const nx = seq[i + 1];
+      if (i >= tl.focus && nx && !it.virtual && !nx.virtual) tlEl.track.appendChild(tlGap(it, nx, x + tl.spacing / 2));
+    }
+
+    // Left of the central node: time until it starts (from now).
+    const cd = tlEl.countdown;
+    cd.style.left = `${Math.max(70, cx - tl.spacing / 2)}px`;
+    if (!focusIt || focusIt.virtual) {
+      cd.innerHTML = "";
     } else {
-      // Nodes near the viewport (a few extra on each side so dragging has something to show).
-      for (let i = Math.max(0, tl.focus - 3); i <= Math.min(tl.items.length - 1, tl.focus + 4); i++) {
-        const x = cx + (i - tl.focus) * tl.spacing;
-        tlEl.track.appendChild(tlNode(tl.items[i], x, i === tl.focus, refDay));
-        // Gap labels from the central node onward (left of centre is the countdown).
-        if (i >= tl.focus && i < tl.items.length - 1) tlEl.track.appendChild(tlGap(tl.items[i], tl.items[i + 1], x + tl.spacing / 2));
-      }
-      // Left of the central node: time until it starts (from now).
       const now = new Date();
-      const cd = tlEl.countdown;
-      cd.style.left = `${Math.max(70, cx - tl.spacing / 2)}px`;
       if (now < focusIt.s) {
         const ms = focusIt.s - now;
         cd.className = `tl-countdown tl-pill ${tone(ms)}`;
@@ -1972,10 +2051,7 @@
       }
     }
 
-    // Under the central node: that day's all-day items (checked-off tasks are left out).
-    const ds = startOfDay(refDay), de = addDays(ds, 1);
-    const allDay = events.filter((ev) => ev.allDay && isVisible(ev) && !(ev.taskId && ev.done)
-      && parseISO(ev.start) < de && parseISO(ev.end) > ds);
+    // Under the central node: that day's all-day items.
     tlEl.allday.hidden = !allDay.length;
     tlEl.allday.style.left = `${cx}px`;
     tlEl.allday.innerHTML = allDay.length ? `<div class="tl-allday-head">All day</div>` : "";
@@ -1992,40 +2068,59 @@
   }
 
   // Move the focus by n nodes with a slide, starting from an optional drag offset.
-  function tlGo(newFocus, fromOffset = 0) {
-    if (!tl.items.length) return;
-    newFocus = clamp(newFocus, 0, tl.items.length - 1);
-    const moved = newFocus - tl.focus;
-    if (moved) tl.auto = false;
-    tl.focus = newFocus;
-    drawTimeline();
-    const start = fromOffset + moved * tl.spacing;
-    if (!start) return;
+  function slideFrom(offset) {
+    if (!offset) return;
     tlEl.track.style.transition = "none";
-    tlEl.track.style.transform = `translateX(${start}px)`;
+    tlEl.track.style.transform = `translateX(${offset}px)`;
     void tlEl.track.offsetWidth; // apply the start position before animating
     tlEl.track.style.transition = "transform .32s cubic-bezier(.2,.8,.2,1)";
     tlEl.track.style.transform = "translateX(0)";
   }
+  // Move the focus to another node, starting from an optional drag offset.
+  function tlGo(newFocus, fromOffset = 0) {
+    if (!tl.seq.length) return;
+    newFocus = clamp(newFocus, 0, tl.seq.length - 1);
+    const moved = newFocus - tl.focus;
+    if (moved) tl.auto = false;
+    const target = tl.seq[newFocus];
+    tl.focusId = seqKey(target);
+    // Leaving an empty day: drop its placeholder from the line.
+    if (!target.virtual) tl.emptyDay = null;
+    tl.seq = makeSeq();
+    tl.focus = Math.max(0, tl.seq.findIndex((it) => seqKey(it) === tl.focusId));
+    drawTimeline();
+    slideFrom(fromOffset + moved * tl.spacing);
+  }
+  // Step exactly one day. A day with events focuses its first one (or the current one, today);
+  // a day without shows a "Nothing planned" placeholder.
   function tlDay(dir) {
-    if (!tl.items.length) return;
-    const ref = startOfDay(tl.items[tl.focus].s);
-    let i;
-    if (dir > 0) i = tl.items.findIndex((it) => startOfDay(it.s) > ref);
-    else {
-      const prevDay = [...tl.items].reverse().find((it) => startOfDay(it.s) < ref);
-      i = prevDay ? tl.items.findIndex((it) => sameDay(it.s, prevDay.s)) : -1;
+    const cur = tl.seq[tl.focus];
+    const ref = startOfDay(cur ? cur.s : new Date());
+    const day = addDays(ref, dir);
+    const onDay = tl.items.filter((it) => sameDay(it.s, day));
+    tl.auto = false;
+    if (onDay.length) {
+      const now = new Date();
+      const pick = sameDay(day, now) ? (onDay.find((it) => it.e > now) || onDay[0]) : onDay[0];
+      tl.emptyDay = null;
+      tl.focusId = pick.ev.id;
+    } else {
+      tl.emptyDay = day;
+      tl.focusId = "virtual";
     }
-    if (i !== -1) tlGo(i);
+    tl.seq = makeSeq();
+    tl.focus = Math.max(0, tl.seq.findIndex((it) => seqKey(it) === tl.focusId));
+    drawTimeline();
+    slideFrom(dir * tl.spacing * 0.6);
   }
 
   tlEl.prev.addEventListener("click", (e) => { e.stopPropagation(); tlDay(-1); });
   tlEl.next.addEventListener("click", (e) => { e.stopPropagation(); tlDay(1); });
-  tlEl.now.addEventListener("click", (e) => { e.stopPropagation(); tl.auto = true; buildTimeline(); });
+  tlEl.now.addEventListener("click", (e) => { e.stopPropagation(); tl.auto = true; tl.emptyDay = null; buildTimeline(); });
 
   // Drag the line to look further ahead (or back).
   tlEl.stage.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || e.target.closest("button") || !tl.items.length) return;
+    if (e.button !== 0 || e.target.closest("button") || !tl.seq.length) return;
     tl.drag = { x0: e.clientX, dx: 0 };
     tlEl.stage.setPointerCapture(e.pointerId);
     tlEl.stage.classList.add("dragging");
@@ -2035,7 +2130,7 @@
     if (!tl.drag) return;
     let dx = e.clientX - tl.drag.x0;
     // Resist past the first / last event.
-    if ((tl.focus === 0 && dx > 0) || (tl.focus === tl.items.length - 1 && dx < 0)) dx *= 0.3;
+    if ((tl.focus === 0 && dx > 0) || (tl.focus === tl.seq.length - 1 && dx < 0)) dx *= 0.3;
     tl.drag.dx = dx;
     tlEl.track.style.transform = `translateX(${dx}px)`;
   });
