@@ -62,8 +62,10 @@ Click **Calendar ▾** (top left) and pick **Action timeline** for a read-only "
   Browsing the timeline doesn't disturb the chat; a **Work** button on another event starts a new session.
 - Several sessions can run at once. The **session switcher** (chat header) jumps between them and moves the
   timeline to that event; navigating the timeline onto an event with an open session shows its chat.
-- Attachments (files + the chat transcript) appear on the event in both modes and open in a viewer with
-  Download; in Calendar mode files can also be deleted.
+- Attachments (files the AI created or you uploaded) appear on the event in both modes and open in a viewer
+  with Download and a trash icon to delete that file.
+- The trash icon in the chat header deletes the whole AI chat, after asking whether to also remove the
+  event's files (Remove AI chat / Remove AI chat and files / Cancel).
 - Endpoint: `api/work.js` (same model, `claude-haiku-5-5`). Chats and files are stored in the browser.
 
 Keyboard shortcuts (ignored while typing in a text box):

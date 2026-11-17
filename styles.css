@@ -568,7 +568,6 @@ body[data-mode="timeline"] .topbar-right { margin-left: auto; }
 .att-chip svg { fill: #5f6368; flex-shrink: 0; }
 .att-chip:hover { background: #e8f0fe; color: #1967d2; }
 .att-chip:hover svg { fill: #1967d2; }
-.att-chip.transcript { background: #fef7e0; }
 .att-chip.more { color: var(--text-2); font-weight: 500; }
 .popover .patt-row { margin-top: 10px; }
 .popover .patt-row .att-chips { margin-top: 0; }
@@ -590,6 +589,23 @@ body[data-mode="timeline"] .topbar-right { margin-left: auto; }
 .viewer-btn.danger { color: #d93025; }
 .viewer-btn.danger:hover { background: #fce8e6; }
 .viewer-btn[hidden] { display: none; }
+.viewer-trash { color: #5f6368; width: 40px; height: 40px; }
+.viewer-trash:hover { color: #d93025; background: #fce8e6; }
+.confirm-card {
+  width: min(540px, 100%); background: #fff; border-radius: 12px; padding: 22px 24px 16px;
+  box-shadow: 0 24px 38px 3px rgba(0,0,0,.14), 0 9px 46px 8px rgba(0,0,0,.12), 0 11px 15px -7px rgba(0,0,0,.2);
+}
+.confirm-card:focus { outline: none; }
+.confirm-title { font: 400 22px "Google Sans", Roboto, sans-serif; color: #202124; overflow-wrap: anywhere; }
+.confirm-text { font-size: 14px; color: var(--text); margin-top: 10px; line-height: 1.5; }
+.confirm-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 22px; }
+.confirm-spacer { flex: 1; }
+.confirm-btn { height: 36px; padding: 0 16px; border-radius: 18px; font: 500 14px "Google Sans", Roboto, sans-serif; color: var(--blue); }
+.confirm-btn:hover { background: #e8f0fe; }
+.confirm-btn.danger { color: #d93025; }
+.confirm-btn.danger:hover { background: #fce8e6; }
+.confirm-btn.danger.solid { background: #d93025; color: #fff; }
+.confirm-btn.danger.solid:hover { background: #b3261e; }
 .viewer-body {
   margin: 0; padding: 20px 24px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
   font: 14px/1.6 "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #202124;

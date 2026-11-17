@@ -458,7 +458,7 @@
       <div class="prow pcal-row"><div class="picon"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg></div>
         <div class="pinfo"><button type="button" class="pcal" title="Change calendar"></button></div></div>`;
     p.querySelector(".pcal").textContent = (calOf(ev) || {}).name || "";
-    const atts = attachmentChips(ev.id, { max: 6, editable: true });
+    const atts = attachmentChips(ev.id, { max: 6 });
     if (!atts.hidden) {
       const row = document.createElement("div");
       row.className = "prow patt-row";
@@ -2229,28 +2229,12 @@
   const ICON_EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
   const ICON_COLLAPSE = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>`;
   const FILE_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>`;
-  const CHAT_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.17L4 17.17V4h16v12z"/></svg>`;
 
   const eventById = (id) => events.find((x) => x.id === id);
   const sessionTitle = (id) => (eventById(id) || {}).title || (sessions[id] || {}).title || "(No title)";
   const filesFor = (id) => attachments[id] || [];
-  function transcriptFor(id) {
-    const s = sessions[id];
-    if (!s || !s.messages.some((m) => m.role === "user")) return null;
-    const lines = [`# AI chat — ${sessionTitle(id)}`, ""];
-    for (const m of s.messages) {
-      const when = new Date(m.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-      if (m.role === "user") lines.push(`**You** (${when}):`, m.text, "");
-      else if (m.role === "assistant") {
-        lines.push(`**AI** (${when}):`, m.text);
-        if (m.files && m.files.length) lines.push(`_Files: ${m.files.join(", ")}_`);
-        lines.push("");
-      } else if (m.role === "note") lines.push(`_${m.text}_`, "");
-    }
-    return { id: "transcript", name: `AI chat — ${sessionTitle(id)}.md`, content: lines.join("\n"), transcript: true, eventId: id };
-  }
-  // Everything shown as attachments for an event: its files plus the chat transcript.
-  const allAttachments = (id) => [...filesFor(id).map((f) => ({ ...f, eventId: id })), ...(transcriptFor(id) ? [transcriptFor(id)] : [])];
+  // Everything shown as attachments for an event: the files the AI created and the user uploaded.
+  const allAttachments = (id) => filesFor(id).map((f) => ({ ...f, eventId: id }));
 
   function upsertFile(eventId, name, content, source) {
     const list = attachments[eventId] || (attachments[eventId] = []);
@@ -2261,18 +2245,18 @@
   }
 
   // Small file chips (cards, chat header, popovers). Clicking opens the viewer.
-  function attachmentChips(eventId, { max = 3, editable = false } = {}) {
+  function attachmentChips(eventId, { max = 3 } = {}) {
     const wrap = document.createElement("div");
     wrap.className = "att-chips";
     const all = allAttachments(eventId);
     all.slice(0, max).forEach((a) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.className = "att-chip" + (a.transcript ? " transcript" : "");
-      b.innerHTML = `${a.transcript ? CHAT_ICON : FILE_ICON}<span></span>`;
-      b.querySelector("span").textContent = a.transcript ? "AI chat" : a.name;
+      b.className = "att-chip";
+      b.innerHTML = `${FILE_ICON}<span></span>`;
+      b.querySelector("span").textContent = a.name;
       b.title = a.name;
-      b.addEventListener("click", (e) => { e.stopPropagation(); openViewer(a, { editable }); });
+      b.addEventListener("click", (e) => { e.stopPropagation(); openViewer(a); });
       wrap.appendChild(b);
     });
     if (all.length > max) {
@@ -2281,7 +2265,7 @@
       more.className = "att-chip more";
       more.textContent = `+${all.length - max}`;
       more.title = all.slice(max).map((a) => a.name).join("\n");
-      more.addEventListener("click", (e) => { e.stopPropagation(); openViewer(all[max], { editable }); });
+      more.addEventListener("click", (e) => { e.stopPropagation(); openViewer(all[max]); });
       wrap.appendChild(more);
     }
     if (!all.length) wrap.hidden = true;
@@ -2290,14 +2274,13 @@
 
   // ----- viewer -----
   let viewing = null;
-  function openViewer(att, { editable = false } = {}) {
+  function openViewer(att) {
     viewing = att;
     wk.vTitle.textContent = att.name;
     const ev = eventById(att.eventId);
     wk.vSub.textContent = [ev ? ev.title : sessionTitle(att.eventId),
-      att.transcript ? "chat transcript" : att.source === "user" ? "attached by you" : "created by AI"].join(" · ");
+      att.source === "user" ? "uploaded by you" : "created by AI"].join(" · ");
     wk.vBody.textContent = att.content;
-    wk.vDelete.hidden = !editable || att.transcript; // files can only be deleted in Calendar mode
     wk.viewer.hidden = false;
     wk.viewer.querySelector(".viewer-card").focus(); // keyboard users land in the dialog
   }
@@ -2316,21 +2299,63 @@
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+  // Trash icon in the viewer: delete this one file (AI-created or uploaded), in either mode.
   wk.vDelete.addEventListener("click", () => {
-    if (!viewing || viewing.transcript) return;
-    const list = attachments[viewing.eventId] || [];
-    attachments[viewing.eventId] = list.filter((f) => f.id !== viewing.id);
+    if (!viewing) return;
+    const id = viewing.eventId, name = viewing.name;
+    const list = (attachments[id] || []).filter((f) => f.id !== viewing.id);
+    if (list.length) attachments[id] = list; else delete attachments[id];
     saveAttachments();
-    const id = viewing.eventId;
     closeViewer();
+    if (mode === "timeline") renderWork();
     // Refresh the event popover if it is showing this event.
     if (!el.popover.hidden && el.popover.dataset.eventId === id) {
       const ev = eventById(id);
       const anchor = document.querySelector(`[data-id="${id}"]:not(.echeck)`);
       if (ev && anchor) showPopover(ev, anchor);
     }
-    setStatus(`Deleted the attachment.`);
+    setStatus(`Deleted “${escapeHTML(name)}”.`);
   });
+
+  // ----- delete an AI chat (with confirmation) -----
+  const cf = {
+    root: $("confirmChat"), title: $("confirmTitle"), text: $("confirmText"),
+    cancel: $("confirmCancel"), chatOnly: $("confirmChatOnly"), chatFiles: $("confirmChatFiles"), eventId: null,
+  };
+  function askDeleteChat(eventId) {
+    const n = filesFor(eventId).length;
+    cf.eventId = eventId;
+    cf.title.textContent = `Delete the AI chat for “${sessionTitle(eventId)}”?`;
+    cf.text.textContent = n
+      ? `This removes the whole conversation. The event has ${n} attached file${n === 1 ? "" : "s"}; you can keep ${n === 1 ? "it" : "them"} or remove ${n === 1 ? "it" : "them"} too. This can't be undone.`
+      : "This removes the whole conversation. This can't be undone.";
+    cf.chatFiles.textContent = n ? `Remove AI chat and files (${n})` : "Remove AI chat and files";
+    cf.root.hidden = false;
+    cf.cancel.focus();
+  }
+  const closeConfirm = () => { cf.root.hidden = true; cf.eventId = null; };
+  function deleteChat(eventId, withFiles) {
+    delete sessions[eventId];
+    work.pending.delete(eventId);   // a reply still on its way is ignored (see sendMessage)
+    work.unread.delete(eventId);
+    delete work.drafts[eventId];
+    if (withFiles) { delete attachments[eventId]; saveAttachments(); }
+    saveSessions();
+    if (work.displayed === eventId) {
+      work.displayed = null;
+      wk.text.value = "";
+      const next = activeSessions()[0];
+      if (next) displaySession(next.eventId, { focusTimeline: true });
+    }
+    if (!work.displayed) setExpanded(false);
+    renderWork();
+    setStatus(withFiles ? "Deleted the AI chat and its files." : "Deleted the AI chat.");
+  }
+  cf.cancel.addEventListener("click", closeConfirm);
+  cf.root.addEventListener("click", (e) => { if (e.target === cf.root) closeConfirm(); });
+  cf.chatOnly.addEventListener("click", () => { const id = cf.eventId; closeConfirm(); if (id) deleteChat(id, false); });
+  cf.chatFiles.addEventListener("click", () => { const id = cf.eventId; closeConfirm(); if (id) deleteChat(id, true); });
+  $("wkDelete").addEventListener("click", (e) => { e.stopPropagation(); if (work.displayed) askDeleteChat(work.displayed); });
 
   // ----- sessions -----
   const openSessions = () => Object.values(sessions).filter((s) => s.open).sort((a, b) => b.lastActive - a.lastActive);
@@ -2476,14 +2501,16 @@
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (sessions[eventId] !== s) return; // the chat was deleted meanwhile
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       const names = [];
       for (const f of data.files || []) { upsertFile(eventId, f.name, f.content, "ai"); names.push(f.name); }
       if (names.length) saveAttachments();
       s.messages.push({ role: "assistant", text: data.reply || "", files: names, at: Date.now() });
     } catch (err) {
-      s.messages.push({ role: "error", text: err.message || "Something went wrong.", at: Date.now() });
+      if (sessions[eventId] === s) s.messages.push({ role: "error", text: err.message || "Something went wrong.", at: Date.now() });
     } finally {
+      if (sessions[eventId] !== s) return;
       work.pending.delete(eventId);
       if (work.displayed !== eventId) work.unread.add(eventId);
       saveSessions();
@@ -2813,6 +2840,7 @@
 
   const isTyping = (t) => t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !cf.root.hidden) { closeConfirm(); return; }
     if (e.key === "Escape" && !wk.viewer.hidden) { closeViewer(); return; }
     if (e.key === "Escape" && !modeEl.menu.hidden) { closeModeMenu(); return; }
     if (mode === "timeline") {
