@@ -280,10 +280,9 @@
       grid.appendChild(col);
     }
 
-    if (wtm.active) drawMeetOverlay();
-
     const sb = el.weekBody.offsetWidth - el.weekBody.clientWidth;
     document.documentElement.style.setProperty("--scrollbar", `${sb}px`);
+    if (wtm.active) renderMeetGrid(); // sets --scrollbar for its own grid
   }
 
   // Assign overlapping events to side-by-side columns (simple greedy clustering).
@@ -2774,7 +2773,7 @@
   const wtm = { wizard: null, active: null, view: "mine", member: null, sel: null, paint: null };
   const wz = {
     mini: $("miniCal"), box: $("wtmWizard"), list: $("wtmList"), items: $("wtmItems"),
-    panel: $("wtmPanel"), newBtn: $("wtmNew"),
+    panel: $("wtmPanel"), newBtn: $("wtmNew"), grid: $("meetGrid"),
   };
   const meetById = (id) => meets.find((m) => m.id === id);
   const activeMeet = () => wtm.active && meetById(wtm.active);
@@ -3166,17 +3165,20 @@
     if (isMobile()) el.sidebar.classList.add("open");
     syncQuickAdd();
     el.sidebar.classList.add("meet-mode");
+    el.main.classList.add("meet");
     if (view !== "week") { view = "week"; saveViewPref(); }
     goToDate(m.mode === "dates" && m.dates.length ? parseISO(m.dates.find((d) => parseISO(d) >= startOfDay(new Date())) || m.dates[0]) : new Date(), false);
     render();
     renderMeetPanel();
-    el.weekBody.scrollTop = hourPx() * Math.max(0, m.start - 0.5);
+    wz.grid.scrollTop = 0;
   }
   function exitMeet() {
     if (!wtm.active) return;
     wtm.active = null; wtm.paint = null; wtm.sel = null;
     el.sidebar.classList.remove("meet-mode");
-    el.main.classList.remove("wtm-hide-events");
+    el.main.classList.remove("meet");
+    wz.grid.hidden = true;
+    wz.grid.innerHTML = "";
     wz.panel.hidden = true;
     renderMeetList();
     render();
@@ -3184,57 +3186,109 @@
   function setMeetView(v, memberId = null) {
     wtm.view = v; wtm.member = memberId; wtm.sel = null;
     renderMeetPanel();
-    renderGrid();
+    renderMeetGrid();
   }
 
-  // Colour layer over each day column of the week view.
-  function drawMeetOverlay() {
+  // The Whentomeet grid: one big block per 30 minutes for each day of the week shown, under the
+  // normal day headers. Your events appear as month-view-style lines in the block where they start.
+  function renderMeetGrid() {
     const m = activeMeet();
-    el.main.classList.toggle("wtm-hide-events", !!m && wtm.view !== "mine");
+    wz.grid.hidden = !m;
     if (!m) return;
+    const n = slotsPerDay(m);
     const people = 1 + m.members.length;
     const member = wtm.view === "member" && m.members.find((p) => p.id === wtm.member);
-    dayCols().forEach((col, ci) => {
+    const scroll = wz.grid.scrollTop;
+    wz.grid.innerHTML = "";
+    const g = document.createElement("div");
+    g.className = "mg";
+    g.style.gridTemplateRows = `repeat(${n}, minmax(30px, 1fr))`;
+    // Time labels on the hour.
+    for (let i = 0; i < n; i++) {
+      const lab = document.createElement("div");
+      lab.className = "mg-time";
+      lab.style.gridRow = String(i + 1);
+      const mins = m.start * 60 + i * SLOT_MIN;
+      if (mins % 60 === 0) lab.textContent = hourLabel(mins / 60);
+      g.appendChild(lab);
+    }
+    for (let ci = 0; ci < 7; ci++) {
       const date = addDays(weekStart, ci);
       const dk = meetDayKeyFor(m, date);
-      const layer = document.createElement("div");
-      layer.className = "wtm-layer" + (dk ? "" : " off");
-      layer.dataset.col = ci;
-      if (dk) {
-        for (let i = 0; i < slotsPerDay(m); i++) {
-          const cell = document.createElement("div");
-          cell.className = "wtm-cell";
-          cell.dataset.dk = dk;
-          cell.dataset.i = i;
-          cell.dataset.col = ci;
-          cell.dataset.date = dayKey(date);
-          cell.style.top = `calc(var(--hour) * ${m.start + (i * SLOT_MIN) / 60})`;
-          cell.style.height = `calc(var(--hour) * ${SLOT_MIN / 60})`;
-          if (i % 2 === 0) cell.classList.add("hour");
-          if (wtm.view === "group") {
-            let n = mineFree(m, dk, i, date) ? 1 : 0;
-            for (const p of m.members) if (memberFree(p, dk, i)) n++;
-            const ratio = n / people;
-            cell.style.background = n ? `rgba(52,168,83,${(0.18 + 0.72 * ratio).toFixed(3)})` : "";
-            cell.classList.add(n ? "g" : "busy");
-            cell.title = `${n}/${people} available`;
-            if (wtm.sel && wtm.sel.dk === dk && wtm.sel.i === i) cell.classList.add("sel");
-          } else if (member) {
-            cell.classList.add(memberFree(member, dk, i) ? "free" : "busy");
-          } else {
-            cell.classList.add(mineFree(m, dk, i, date) ? "free" : "busy");
-          }
-          layer.appendChild(cell);
-        }
+      if (!dk) {
+        // Not one of this Whentomeet's days.
+        const off = document.createElement("div");
+        off.className = "mg-off";
+        off.style.gridColumn = String(ci + 2);
+        off.style.gridRow = `1 / ${n + 1}`;
+        g.appendChild(off);
+        continue;
       }
-      col.appendChild(layer);
-    });
+      // Your events, placed in the block that contains their start (or the first block if they began earlier).
+      const lines = {};
+      if (wtm.view === "mine") {
+        const winStart = slotTimes(m, date, 0)[0], winEnd = slotTimes(m, date, n - 1)[1];
+        events
+          .filter((ev) => !ev.allDay && isVisible(ev) && parseISO(ev.start) < winEnd && parseISO(ev.end) > winStart)
+          .sort((a, b) => parseISO(a.start) - parseISO(b.start))
+          .forEach((ev) => {
+            const st = parseISO(ev.start);
+            const i = clamp(Math.floor((st - winStart) / (SLOT_MIN * 60000)), 0, n - 1);
+            (lines[i] = lines[i] || []).push(ev);
+          });
+      }
+      for (let i = 0; i < n; i++) {
+        const cell = document.createElement("div");
+        cell.className = "wtm-cell";
+        cell.style.gridColumn = String(ci + 2);
+        cell.style.gridRow = String(i + 1);
+        cell.dataset.dk = dk;
+        cell.dataset.i = i;
+        cell.dataset.col = ci;
+        cell.dataset.date = dayKey(date);
+        if ((m.start * 60 + i * SLOT_MIN) % 60 === 0) cell.classList.add("hour");
+        if (wtm.view === "group") {
+          let k = mineFree(m, dk, i, date) ? 1 : 0;
+          for (const p of m.members) if (memberFree(p, dk, i)) k++;
+          cell.style.background = k ? `rgba(52,168,83,${(0.15 + 0.75 * (k / people)).toFixed(3)})` : "";
+          cell.classList.add(k ? "g" : "busy");
+          cell.title = `${k}/${people} available`;
+          if (k) {
+            const c = document.createElement("span");
+            c.className = "mg-count";
+            c.textContent = `${k}/${people}`;
+            cell.appendChild(c);
+          }
+          if (wtm.sel && wtm.sel.dk === dk && wtm.sel.i === i) cell.classList.add("sel");
+        } else if (member) {
+          cell.classList.add(memberFree(member, dk, i) ? "free" : "busy");
+        } else {
+          cell.classList.add(mineFree(m, dk, i, date) ? "free" : "busy");
+          for (const ev of (lines[i] || [])) {
+            const line = document.createElement("div");
+            line.className = "mg-ev";
+            line.innerHTML = `<span class="mdot"></span><span class="mtime"></span><span class="mtitle"></span>`;
+            line.querySelector(".mdot").style.background = colorOf(ev);
+            line.querySelector(".mtime").textContent = fmtTime(parseISO(ev.start));
+            line.querySelector(".mtitle").textContent = ev.title || "(No title)";
+            line.title = `${ev.title || "(No title)"} · ${fmtRange(parseISO(ev.start), parseISO(ev.end))}`;
+            cell.appendChild(line);
+          }
+        }
+        g.appendChild(cell);
+      }
+    }
+    wz.grid.appendChild(g);
+    wz.grid.scrollTop = scroll;
+    // Keep the day headers lined up with the grid when it has a scrollbar.
+    const sb = wz.grid.offsetWidth - wz.grid.clientWidth;
+    document.documentElement.style.setProperty("--scrollbar", `${sb}px`);
   }
 
-  // Painting your availability: drag a rectangle; the first cell decides free or busy.
+  // Painting your availability: drag a rectangle; the first block decides free or busy.
   function meetCellAt(x, y) {
     const n = document.elementFromPoint(x, y);
-    return n && n.closest && n.closest(".wtm-cell");
+    return n && n.closest && n.closest(".mg .wtm-cell");
   }
   function meetDown(e) {
     const cell = e.target.closest(".wtm-cell");
@@ -3243,7 +3297,7 @@
     const dk = cell.dataset.dk, i = Number(cell.dataset.i);
     if (wtm.view === "group") {
       wtm.sel = { dk, i, date: cell.dataset.date };
-      el.weekGrid.querySelectorAll(".wtm-cell.sel").forEach((c) => c.classList.remove("sel"));
+      wz.grid.querySelectorAll(".wtm-cell.sel").forEach((c) => c.classList.remove("sel"));
       cell.classList.add("sel");
       renderMeetPanel();
       return;
@@ -3252,10 +3306,11 @@
     e.preventDefault();
     const pos = { col: Number(cell.dataset.col), i };
     wtm.paint = { target: !cell.classList.contains("free"), a: pos, b: pos };
-    el.weekGrid.setPointerCapture(e.pointerId);
+    wz.grid.setPointerCapture(e.pointerId);
     previewPaint();
   }
   function meetMove(e) {
+    if (!wtm.paint) return;
     const cell = meetCellAt(e.clientX, e.clientY);
     if (!cell) return;
     wtm.paint.b = { col: Number(cell.dataset.col), i: Number(cell.dataset.i) };
@@ -3268,25 +3323,24 @@
   };
   function previewPaint() {
     const m = activeMeet();
-    el.weekGrid.querySelectorAll(".wtm-cell").forEach((cell) => {
+    wz.grid.querySelectorAll(".wtm-cell").forEach((cell) => {
       const free = inPaintRect(cell) ? wtm.paint.target : mineFree(m, cell.dataset.dk, Number(cell.dataset.i), parseISO(cell.dataset.date));
       cell.classList.toggle("free", free);
       cell.classList.toggle("busy", !free);
     });
   }
   function meetUp(e) {
+    if (!wtm.paint) return;
     const m = activeMeet();
-    try { el.weekGrid.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    try { wz.grid.releasePointerCapture(e.pointerId); } catch { /* already released */ }
     if (m) {
-      el.weekGrid.querySelectorAll(".wtm-cell").forEach((cell) => {
+      wz.grid.querySelectorAll(".wtm-cell").forEach((cell) => {
         if (inPaintRect(cell)) m.mine[slotKey(cell.dataset.dk, Number(cell.dataset.i))] = wtm.paint.target;
       });
       saveMeets();
     }
     wtm.paint = null;
-    suppressClick = true;
-    setTimeout(() => (suppressClick = false), 0);
-    renderGrid();
+    renderMeetGrid();
   }
 
   // Sidebar panel while a Whentomeet is open.
@@ -3411,11 +3465,11 @@
   }
 
   wz.newBtn.addEventListener("click", (e) => { e.stopPropagation(); if (wtm.wizard) closeWizard(); else openWizard(); });
-  // Grid pointer handling in Whentomeet mode runs before the normal event drag/create handlers.
-  el.weekGrid.addEventListener("pointerdown", (e) => { if (wtm.active) { e.stopImmediatePropagation(); meetDown(e); } }, true);
-  el.weekGrid.addEventListener("pointermove", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); meetMove(e); } }, true);
-  el.weekGrid.addEventListener("pointerup", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); meetUp(e); } }, true);
-  el.weekGrid.addEventListener("pointercancel", (e) => { if (wtm.paint) { e.stopImmediatePropagation(); wtm.paint = null; renderGrid(); } }, true);
+  wz.grid.addEventListener("pointerdown", meetDown);
+  wz.grid.addEventListener("pointermove", meetMove);
+  wz.grid.addEventListener("pointerup", meetUp);
+  wz.grid.addEventListener("pointercancel", () => { if (wtm.paint) { wtm.paint = null; renderMeetGrid(); } });
+  // While a Whentomeet is open the day headers are display-only.
   el.weekHead.addEventListener("pointerdown", (e) => { if (wtm.active) e.stopImmediatePropagation(); }, true);
 
   // ---------- wiring ----------
