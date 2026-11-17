@@ -371,7 +371,11 @@ small.wtm-warn { font-size: 11px; font-weight: 500; white-space: normal; }
 .popover .pdone:hover { background: #e8f0fe; }
 
 /* ---------- "Update events from Connection Hub": round icon button in the sidebar's bottom-left corner ---------- */
-.hub-sync { position: sticky; bottom: -16px; margin: 8px -12px -16px -16px; padding: 10px 12px 10px 14px; pointer-events: none; z-index: 3; }
+/* Fixed to the window's bottom-left corner (the sidebar's corner), whatever the sidebar holds. */
+.hub-sync { position: fixed; left: 16px; bottom: 16px; z-index: 6; pointer-events: none; }
+.sidebar { padding-bottom: 92px; } /* the last sidebar items can always scroll clear of the button */
+.sidebar.collapsed .hub-sync { display: none; }
+@media (max-width: 800px) { .sidebar:not(.open) .hub-sync { display: none; } }
 .hub-sync-btn {
   pointer-events: auto; position: relative; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
   background: #1a73e8; box-shadow: 0 1px 3px 0 rgba(60,64,67,.3), 0 4px 8px 3px rgba(60,64,67,.15);
