@@ -4761,6 +4761,22 @@
       searchUI.list.append(row);
     });
   }
+  function renderSearchAnswer(data) {
+    searchUI.answer.hidden = false;
+    searchUI.answer.textContent = typeof data.answer === "string" ? data.answer : "No answer returned.";
+    const chips = document.createElement("div"); chips.className = "search-chips";
+    const chip = (label, action) => { const b = document.createElement("button"); b.type = "button"; b.className = "search-chip"; b.textContent = label; b.onclick = (e) => { e.stopPropagation(); action(); }; chips.append(b); };
+    for (const id of Array.isArray(data.event_ids) ? data.event_ids : []) {
+      const ev = events.find((item) => item.id === id);
+      if (ev) chip(`${ev.title} · ${searchWhen(ev)}`, () => searchOpenEvent(id));
+    }
+    const timeRE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+    for (const range of Array.isArray(data.free_ranges) ? data.free_ranges : []) {
+      if (!range || !timeRE.test(range.start) || !timeRE.test(range.end) || parseISO(range.end) <= parseISO(range.start)) continue;
+      chip(searchWhen(range), () => searchOpenSlot(range));
+    }
+    searchUI.answer.append(chips);
+  }
   async function askCalendar() {
     const question = searchUI.input.value.trim();
     if (!question) return;
@@ -4779,19 +4795,7 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
       if (searchRequest !== request) return;
-      searchUI.answer.textContent = typeof data.answer === "string" ? data.answer : "No answer returned.";
-      const chips = document.createElement("div"); chips.className = "search-chips";
-      const chip = (label, action) => { const b = document.createElement("button"); b.type = "button"; b.className = "search-chip"; b.textContent = label; b.onclick = (e) => { e.stopPropagation(); action(); }; chips.append(b); };
-      for (const id of Array.isArray(data.event_ids) ? data.event_ids : []) {
-        const ev = events.find((item) => item.id === id);
-        if (ev) chip(`${ev.title} · ${searchWhen(ev)}`, () => searchOpenEvent(id));
-      }
-      const timeRE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
-      for (const range of Array.isArray(data.free_ranges) ? data.free_ranges : []) {
-        if (!range || !timeRE.test(range.start) || !timeRE.test(range.end) || parseISO(range.end) <= parseISO(range.start)) continue;
-        chip(searchWhen(range), () => searchOpenSlot(range));
-      }
-      searchUI.answer.append(chips);
+      renderSearchAnswer(data);
     } catch (err) {
       if (searchRequest === request && err.name !== "AbortError") searchUI.answer.textContent = err.message;
     } finally {
@@ -4814,7 +4818,7 @@
     } else if (e.key === "Escape") { e.preventDefault(); closeSearch(); }
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !searchUI.root.hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeSearch(); }
+    if (e.key === "Escape" && $("tour").hidden && !searchUI.root.hidden) { e.preventDefault(); e.stopImmediatePropagation(); closeSearch(); }
   }, true);
 
   // ---------- Booking pages ----------
@@ -4865,7 +4869,7 @@
     return seeded;
   }
   let bookingPages = loadBookingPages();
-  const saveBookingPages = () => { try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookingPages)); } catch { /* storage full */ } };
+  const saveBookingPages = () => { try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookingPages.filter(notDemo))); } catch { /* storage full */ } };
   const bookingById = (id) => bookingPages.find((p) => p.id === id);
 
   // "Mon–Fri", "Mon, Wed, Fri", "Sun, Sat", "Every day". Runs of 3+ days read as a range.
@@ -5121,15 +5125,15 @@
     }
     else if (bkView.open) hideBookingGuest();
   }
-  function previewBookingPage(p, btn) {
+  function previewBookingPage(p, btn, demo = false) {
     bkView.returnTo = btn || null;
-    if (bookingHashId() !== p.id) {
+    if (!demo && bookingHashId() !== p.id) {
       location.hash = `book/${encodeURIComponent(p.id)}`; // fires hashchange, which finds it already open
       bkView.pushed = true; // so closing can step back instead of leaving an extra history entry
     }
-    openBookingGuest(p.id);
+    openBookingGuest(p.id, demo);
   }
-  function openBookingGuest(id) {
+  function openBookingGuest(id, demo = false) {
     hidePopover();
     const page = bookingById(id);
     Object.assign(bkView, { pageId: id, step: "pick", slot: null, booked: null, notice: "", day: null,
@@ -5142,11 +5146,12 @@
     if (!bkView.open) {
       // Everything behind the guest view is out of reach (mouse, Tab and screen readers).
       for (const n of document.body.children) {
-        if (n === bkEl.guest || n.tagName === "SCRIPT" || n.inert) continue;
+        if (n === bkEl.guest || (demo && n.id === "tour") || n.tagName === "SCRIPT" || n.inert) continue;
         n.inert = true;
         bkView.inerted.push(n);
       }
     }
+    bkEl.guest.classList.toggle("tour-preview", demo);
     bkView.open = true;
     bkEl.guest.hidden = false;
     bkEl.copy.hidden = !page;
@@ -5154,6 +5159,7 @@
     renderBookingGuest(".bk-title");
   }
   function hideBookingGuest() {
+    bkEl.guest.classList.remove("tour-preview");
     bkView.open = false;
     bkView.pushed = false;
     bkEl.guest.hidden = true;
@@ -5476,7 +5482,7 @@
   });
   // …even if focus somehow ends up outside it (e.g. on the page body): Tab brings it back in.
   document.addEventListener("keydown", (e) => {
-    if (!bkView.open || bkEl.guest.contains(e.target)) return;
+    if (!$("tour").hidden || !bkView.open || bkEl.guest.contains(e.target)) return;
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); bookingEscape(); }
     else if (e.key === "Tab") { e.preventDefault(); bkEl.guest.focus(); }
@@ -5679,10 +5685,12 @@
     conflictStatus(msgs.map((m) => m.text).join(" "), { askBtn: true });
   }
 
-  function showConflictCard(ev, others, slot) {
+  function showConflictCard(ev, others, slot, demo = false) {
     const from = parseISO(ev.start);
-    const otherSlot = others.length === 1 ? slotFor(others[0]) : null;
-    cfx.current = { id: ev.id, others: others.map((o) => o.id), slot, otherSlot };
+    const otherSlot = others.length === 1 ? (demo
+      ? nextFreeSlot(parseISO(others[0].start), parseISO(others[0].end), [...busyFor(others[0]), { start: parseISO(ev.start), end: parseISO(ev.end) }])
+      : slotFor(others[0])) : null;
+    cfx.current = { demo, id: ev.id, others: others.map((o) => o.id), slot, otherSlot };
 
     cfxEl.count.textContent = cfx.total > 1 ? `${Math.min(cfx.index, cfx.total)} of ${cfx.total}` : "";
     cfxEl.text.textContent = "";
@@ -5765,7 +5773,7 @@
 
   function resolveConflict(choice) {
     const cur = cfx.current;
-    if (!cur) return;
+    if (!cur || cur.demo) return;
     const ev = eventById(cur.id);
     if (choice === "cancel") {
       // Undo the moves this card made, then the change that caused the overlap.
@@ -5823,7 +5831,7 @@
   });
   // Escape anywhere else while the card is up also means "keep both" (unless it's cancelling a drag).
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !conflictOpen() || cfxEl.root.contains(e.target) || drag || tdrag || hdrag) return;
+    if (!$("tour").hidden || e.key !== "Escape" || !conflictOpen() || cfxEl.root.contains(e.target) || drag || tdrag || hdrag) return;
     e.stopPropagation();
     e.preventDefault();
     resolveConflict("keep");
@@ -5840,11 +5848,18 @@
   // Each step can list "demo" keys: things the tour opens or puts on screen for that step (see DEMOS).
   const TOURS = {
     calendar: [
+      { name: "Views & search", steps: [
+        { title: "Choose your view", target: "#viewMenu", demo: ["viewMenu"], body: "See a day, week, month or year. Use this menu, or press D / W / M / Y." },
+        { title: "Search or ask", target: "#calendarSearch", demo: ["searchAnswer"], body: "Click the magnifier or press / to find events or ask a question. Free-time chips open a draft for you to review — here's an example answer." },
+        { title: "Make it yours", target: "#themeBtn", body: "Switch between light and dark; it follows your system until you pick." },
+      ] },
       { name: "AI: add & edit", steps: [
         { title: "Just type what you want", target: "#aiForm", demo: ["sidebar", "aiText"], body: "Describe events in plain words: “Lunch with Sam tomorrow at noon”, “move my gym session to Friday 6pm”, “cancel everything on Wednesday”. The AI adds, moves or removes the right events." },
+        { title: "Say it instead", target: () => [visibleTarget("#aiForm .ai-mic") || $("aiForm")], demo: ["sidebar"], body: "Use the mic to dictate in Chrome, Edge and Safari. Your words fill the box; review them, then send." },
         { title: "Click an empty time", target: [".week-grid .event.draft", "#popover"], demo: ["week", "createPop"], body: "Click (or drag across) an empty slot and this opens. Type a title and Save, or describe it under “Or describe it” and let the AI fill in the details." },
         { title: "Click an event to change it", target: () => [tourEventBlock(), el.popover], demo: ["week", "eventPop"], body: "Clicking an event opens this. It takes a description too (“make it 2 hours”, “delete it”). Double-click the title or location to edit it, and click the colour square to move it to another calendar." },
         { title: "Calendars are your tags", target: [".my-cals", "#popover"], demo: ["sidebar", "calEditor"], body: "Each event takes its calendar's colour. Tick a calendar to show or hide it, + to make one, the pencil to rename or recolour (open here). The AI can do this too (“make a Health tag in green”)." },
+        { title: "Catch an overlap", target: ".conflict-card", demo: ["week", "conflict"], body: "When times overlap, you can keep both, move yours, reschedule the other event or cancel. These example choices won't change anything." },
         { title: "Messages from other apps", target: "#hubSync", demo: ["sidebar"], body: "The red badge counts new messages in the Connection Hub. Click it to jump there with them selected." },
         { title: "Undo anything", target: null, body: "Ctrl/⌘ + Z undoes and Ctrl + Y redoes every change — AI edits, drags and deletes included." },
       ] },
@@ -5859,6 +5874,10 @@
         { title: "Mark your availability", target: "#meetGrid", demo: ["meet"], body: "Green blocks are available, gray are not. By default, times with an event on your calendar are not available and the rest are. Drag across blocks to change them; “Reset to my calendar” undoes your painting." },
         { title: "See the group", target: "#meetGrid", demo: ["meet", "meetGroup"], body: "Group availability shades each time by how many people are free — click a time to see who is and isn't. Click a person in the list to see just their times." },
         { title: "Overlap warnings", target: ".wtm-top", demo: ["meet"], body: "If an event later lands on time you marked available, a red warning appears right under this line, with a one-click fix." },
+      ] },
+      { name: "Booking pages", steps: [
+        { title: "Let people book with you", target: "#bkList", demo: ["sidebar", "bookingPage"], body: "Share a page like Coffee chat so people can pick a free time with you. + makes one; the pencil changes its hours and details." },
+        { title: "See what guests see", target: "#bkWrap", demo: ["bookingPage", "bookingPreview"], body: "Preview opens your guest page, like this. Guests choose a free time and leave their details; confirmed bookings go on your calendar." },
       ] },
     ],
     timeline: [
@@ -5879,9 +5898,10 @@
     // then back to Calendar for the ? button.
     welcome: [
       { name: "Welcome", steps: [
-        { title: "Mode 1 of 3: Calendar", target: '.mode-tab[data-mode="calendar"]', demo: ["modeCalendar"], light: true, body: "Your week and month. Add, move and change events by just typing what you want — the AI does the rest. Tasks and Whentomeet live here too." },
+        { title: "Mode 1 of 3: Calendar", target: '.mode-tab[data-mode="calendar"]', demo: ["modeCalendar"], light: true, body: "Your day, week, month and year. Add, move and change events by just typing what you want — the AI does the rest. Tasks and Whentomeet live here too." },
         { title: "Mode 2 of 3: Action Timeline", target: '.mode-tab[data-mode="timeline"]', demo: ["modeTimeline", "tlEvents"], light: true, body: "What's happening now and what's next, on one line with countdowns. Click Work to get an AI's help with any event." },
         { title: "Mode 3 of 3: Connection Hub", target: '.mode-tab[data-mode="hub"]', demo: ["modeHub"], light: true, body: "Messages from Slack, email, Canvas and more in one place. Pick some and the AI turns them into events and tasks." },
+        { title: "Find things, set the mood", target: ["#searchBtn", "#themeBtn"], demo: ["modeCalendar"], body: "Use the magnifier to search or ask your calendar, and the sun or moon to switch between light and dark." },
         { title: "Tour any mode", target: "#helpBtn", demo: ["modeCalendar"], body: "Click ? whenever you like for a short tour of the mode you're in — it opens everything it explains for you." },
       ] },
     ],
@@ -5946,6 +5966,42 @@
       if (view !== "week") setView("week");
       if (isMobile()) setSidebar(false);
       return null;
+    },
+    viewMenu() {
+      el.viewMenu.hidden = false;
+      el.viewBtn.setAttribute("aria-expanded", "true");
+      return () => { el.viewMenu.hidden = true; el.viewBtn.setAttribute("aria-expanded", "false"); };
+    },
+    searchAnswer() {
+      searchUI.input.value = "When am I free Thursday?";
+      openSearch();
+      const thursday = searchFreeGaps(events.filter(notDemo)).find((d) => d.weekday === "Thursday");
+      const gaps = thursday?.gaps || [];
+      renderSearchAnswer({ answer: gaps.length ? "Here's your free time this Thursday (example answer)." : "You're busy this Thursday (example answer).", free_ranges: gaps });
+      return () => { closeSearch(); searchUI.input.value = ""; renderSearch(); searchUI.answer.setAttribute("aria-busy", "false"); };
+    },
+    bookingPage() {
+      const page = bookingPages.length ? null : { ...normBookingPage({ name: "Coffee chat", duration: 30, start: 9, end: 17, location: "Zoom" }), demo: true };
+      if (page) bookingPages.push(page);
+      renderBookingList();
+      bkEl.list.scrollIntoView({ block: "nearest" });
+      return () => { if (page) bookingPages = bookingPages.filter((p) => p !== page); renderBookingList(); };
+    },
+    bookingPreview() {
+      previewBookingPage(bookingPages[0], null, true);
+      return () => hideBookingGuest();
+    },
+    conflict() {
+      dismissConflicts();
+      const day = tourDay(), start = new Date(day); start.setHours(11, 0, 0, 0);
+      const end = new Date(start); end.setHours(12);
+      const other = addDemoEvent({ title: "Project sync", start: toISO(start), end: toISO(end) });
+      const ev = addDemoEvent({ title: "Lunch with Sam", start: other.start, end: other.end });
+      render(); scrollToHour(11);
+      const busy = [...busyFor(ev), { start, end }];
+      cfx.total = 1; cfx.index = 1;
+      showConflictCard(ev, [other], nextFreeSlot(start, end, busy), true);
+      return () => { dismissConflicts(); cfxEl.auto.checked = false; dropDemoEvents(); render(); };
     },
     aiText() {
       const before = el.aiInput.value;
@@ -6204,7 +6260,7 @@
   }
   // Where things were before the tour (view, date, sidebar…), put back when it closes.
   function saveTourUI() {
-    tour.ui = { mode, view, focus: new Date(focus), sidebarOpen: !sidebarClosed(), scroll: el.weekBody.scrollTop, meet: !!wtm.active,
+    tour.ui = { mode, view, focus: new Date(focus), sidebarOpen: !sidebarClosed(), scroll: el.weekBody.scrollTop, sidebarScroll: el.sidebar.scrollTop, meet: !!wtm.active,
       hubSide: hubEl.root.classList.contains("side-hidden") };
   }
   function restoreTourUI() {
@@ -6213,12 +6269,16 @@
     tour.ui = null;
     if (mode !== u.mode) setMode(u.mode);
     if (mode === "hub") hubEl.root.classList.toggle("side-hidden", u.hubSide);
-    if (mode !== "calendar" || wtm.active) return;
+    if (mode !== "calendar") return;
+    setSidebar(u.sidebarOpen);
+    el.sidebar.scrollTop = u.sidebarScroll;
+    if (wtm.active) return;
     if (view !== u.view) { view = u.view; saveViewPref(); }
     goToDate(u.focus, false);
     setSidebar(u.sidebarOpen);
     render();
     if (timeView()) el.weekBody.scrollTop = u.scroll;
+    el.sidebar.scrollTop = u.sidebarScroll;
   }
 
   function tourTargets(st) {
