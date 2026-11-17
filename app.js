@@ -2022,18 +2022,26 @@
       && parseISO(ev.start) < de && parseISO(ev.end) > ds);
 
     // Nodes near the viewport (a few extra on each side so dragging has something to show).
-    // On the left, only events from the same day or the day before are shown; if the day before is
-    // free, earlier events stay hidden (they only appear while dragging, so moving back stays smooth).
+    // Beside the centre, only events from the same day or the neighbouring day are shown: if the day
+    // before (left) or after (right) is free, events further away stay hidden. They only appear while
+    // dragging, so moving along the line stays smooth.
     const prevDay = addDays(startOfDay(refDay), -1);
+    const afterNextDay = addDays(startOfDay(refDay), 2);
+    const isFar = (i) => (i < tl.focus && startOfDay(seq[i].s) < prevDay) || (i > tl.focus && seq[i].s >= afterNextDay);
     for (let i = Math.max(0, tl.focus - 3); i <= Math.min(seq.length - 1, tl.focus + 4); i++) {
       const x = cx + (i - tl.focus) * tl.spacing;
       const it = seq[i];
       const node = it.virtual ? tlEmptyNode(it, x, i === tl.focus, allDay.length > 0) : tlNode(it, x, i === tl.focus, refDay);
-      if (i < tl.focus && startOfDay(it.s) < prevDay) node.classList.add("tl-far");
+      if (isFar(i)) node.classList.add("tl-far");
       tlEl.track.appendChild(node);
-      // Gap labels from the central node onward (left of centre is the countdown).
+      // Gap labels from the central node onward (left of centre is the countdown);
+      // a gap leading to a hidden event is hidden with it.
       const nx = seq[i + 1];
-      if (i >= tl.focus && nx && !it.virtual && !nx.virtual) tlEl.track.appendChild(tlGap(it, nx, x + tl.spacing / 2));
+      if (i >= tl.focus && nx && !it.virtual && !nx.virtual) {
+        const gap = tlGap(it, nx, x + tl.spacing / 2);
+        if (isFar(i + 1)) gap.classList.add("tl-far");
+        tlEl.track.appendChild(gap);
+      }
     }
 
     // Left of the central node: time until it starts (from now).
